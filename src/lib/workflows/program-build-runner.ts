@@ -33,6 +33,7 @@ import {
   upsertProgramContext,
   upsertLessonContext,
   buildContextPack,
+  generateResourcePlan,
 } from '../context-store'
 
 const inMemoryRunningJobs = new Set<string>()
@@ -401,7 +402,8 @@ async function processModule(
         dbModule.id,
         lessonIndex,
         lessonPlan.lesson,
-        languagePolicy
+        languagePolicy,
+        job.programId
       )
 
       // Update checkpoint after each lesson
@@ -559,7 +561,8 @@ async function processLesson(
     objectives: string[]
     estimatedMinutes?: number
   },
-  languagePolicy: ReturnType<typeof resolveLanguagePolicy>
+  languagePolicy: ReturnType<typeof resolveLanguagePolicy>,
+  programId: string
 ) {
   const heartbeat = async () => {
     await updateBuildJobState(jobId, {
@@ -595,6 +598,7 @@ async function processLesson(
       resources: true,
       notes: true,
       exerciseSets: true,
+      context: true,
     },
   })
 
@@ -608,6 +612,27 @@ async function processLesson(
     objectives: lessonPlan.objectives,
     estimatedMinutes: lessonPlan.estimatedMinutes ?? lesson.estimatedMinutes ?? 45,
     keyTopics: lessonPlan.objectives.slice(0, 3),
+  }
+
+  // Generate resource plan if not already present
+  let resourcePlan = lesson.context?.resourcePlanJson
+    ? JSON.parse(lesson.context.resourcePlanJson)
+    : null
+
+  if (!resourcePlan) {
+    const programContext = await prisma.programContext.findUnique({
+      where: { programId },
+    })
+
+    const contextData = programContext ? {
+      profileSummary: programContext.profileSummary,
+      planSummary: programContext.planSummary,
+      moduleOutlines: JSON.parse(programContext.moduleOutlinesJson || '[]'),
+      constraints: JSON.parse(programContext.constraintsJson || '{}'),
+      languagePolicy: JSON.parse(programContext.languagePolicyJson || '{}'),
+    } : null
+
+    resourcePlan = await generateResourcePlan(lessonBlueprint, moduleBlueprint.title, contextData)
   }
 
   await prisma.lesson.update({
@@ -832,7 +857,7 @@ async function processLesson(
   })
 
   // Create lesson context for RAG/context awareness
-  await upsertLessonContext(lesson.id, lessonBlueprint, refinedNotes.summary)
+  await upsertLessonContext(lesson.id, lessonBlueprint, refinedNotes.summary, resourcePlan)
 }
 
 async function ensureModuleQuiz(

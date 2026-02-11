@@ -40,6 +40,14 @@ export interface LessonContextData {
   keyTopics: string[]
   difficultyLevel: string
   expectedMinutes: number
+  resourcePlan?: ResourcePlan
+}
+
+export interface ResourcePlan {
+  targetVideoCount: number // 2-10
+  targetReadingCount?: number
+  preferredFormat?: 'tutorial' | 'playlist' | 'lecture' | 'mixed'
+  rationale: string
 }
 
 export interface ContextPack {
@@ -115,7 +123,8 @@ export async function upsertProgramContext(
 export async function upsertLessonContext(
   lessonId: string,
   lessonBlueprint: LessonBlueprint,
-  notesSummary: string = ''
+  notesSummary: string = '',
+  resourcePlan?: ResourcePlan
 ): Promise<void> {
   const objectives = lessonBlueprint.objectives
   const keyTopics = lessonBlueprint.keyTopics
@@ -131,6 +140,7 @@ export async function upsertLessonContext(
       keyTopicsJson: JSON.stringify(keyTopics),
       difficultyLevel,
       expectedMinutes,
+      resourcePlanJson: resourcePlan ? JSON.stringify(resourcePlan) : '{}',
     },
     update: {
       objectivesJson: JSON.stringify(objectives),
@@ -138,6 +148,7 @@ export async function upsertLessonContext(
       keyTopicsJson: JSON.stringify(keyTopics),
       difficultyLevel,
       expectedMinutes,
+      resourcePlanJson: resourcePlan ? JSON.stringify(resourcePlan) : '{}',
     },
   })
 }
@@ -329,4 +340,87 @@ export async function deleteLessonContext(lessonId: string): Promise<void> {
   }).catch(() => {
     // Ignore if not found
   })
+}
+
+/**
+ * Generate resource plan for a lesson using LLM
+ * This determines how many videos/resources a lesson needs based on complexity
+ */
+export async function generateResourcePlan(
+  lessonBlueprint: LessonBlueprint,
+  moduleTitle: string,
+  programContext: ProgramContextData | null
+): Promise<ResourcePlan> {
+  const { getOpenRouterClient } = await import('./openrouter/client')
+  const { z } = await import('zod')
+
+  const ResourcePlanSchema = z.object({
+    targetVideoCount: z.number().min(2).max(10),
+    targetReadingCount: z.number().min(0).max(5).optional(),
+    preferredFormat: z.enum(['tutorial', 'playlist', 'lecture', 'mixed']).optional(),
+    rationale: z.string().min(10).max(200),
+  })
+
+  const estimatedMinutes = lessonBlueprint.estimatedMinutes || 30
+  const objectivesCount = lessonBlueprint.objectives.length
+
+  // Build prompt for LLM
+  const prompt = `You are a curriculum planner. Decide how many learning resources this lesson needs.
+
+Lesson: ${lessonBlueprint.title}
+Module: ${moduleTitle}
+Estimated duration: ${estimatedMinutes} minutes
+Objectives (${objectivesCount}):
+${lessonBlueprint.objectives.map((o, i) => `${i + 1}. ${o}`).join('\n')}
+
+${programContext ? `Program context: ${programContext.profileSummary}` : ''}
+
+Return a JSON object with:
+{
+  "targetVideoCount": number (2-10, based on lesson complexity),
+  "targetReadingCount": number (0-5, optional),
+  "preferredFormat": "tutorial" | "playlist" | "lecture" | "mixed" (optional),
+  "rationale": "brief explanation of your decision"
+}
+
+Guidelines:
+- Longer lessons (60+ min) need more videos (6-10)
+- Shorter lessons (30-45 min) need fewer videos (2-5)
+- Complex topics benefit from playlists
+- Practical skills benefit from tutorials
+- Theory-heavy topics benefit from lectures`
+
+  try {
+    const client = getOpenRouterClient()
+    const result = await client.chatCompletionWithSchema(
+      {
+        task: 'reasoning',
+        disableSystemRole: true,
+        temperature: 0.4,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a curriculum planning assistant. Return strict JSON only.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      },
+      ResourcePlanSchema,
+      2
+    )
+
+    return result as ResourcePlan
+  } catch (error) {
+    // Fallback to heuristic if LLM fails
+    const baseCount = estimatedMinutes > 60 ? 6 : estimatedMinutes > 45 ? 4 : 3
+    return {
+      targetVideoCount: Math.min(10, Math.max(2, baseCount + Math.floor(objectivesCount / 2))),
+      targetReadingCount: Math.floor(objectivesCount / 2),
+      preferredFormat: 'mixed',
+      rationale: 'Fallback heuristic based on lesson duration and objectives count.',
+    }
+  }
 }

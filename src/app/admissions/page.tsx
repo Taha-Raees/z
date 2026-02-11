@@ -723,9 +723,9 @@ export default function AdmissionsPage() {
     setIsGeneratingProgram(true)
 
     appendGenerationLog({
-      step: 'Retry',
+      step: 'Resume',
       status: 'in_progress',
-      message: 'Requesting retry for failed background job...',
+      message: 'Requesting resume for background job...',
       timestamp: new Date().toISOString(),
     })
 
@@ -739,10 +739,61 @@ export default function AdmissionsPage() {
         error?: string
         retryCount?: number
         maxRetries?: number
+        resumeFrom?: string
       }
 
       if (!response.ok) {
-        throw new Error(payload.error || 'Retry request failed')
+        // Check if we need to recover a stale RUNNING job
+        if (response.status === 409 && payload.error?.includes('RUNNING')) {
+          // Job is RUNNING but might be stale - try recover
+          appendGenerationLog({
+            step: 'Recover',
+            status: 'in_progress',
+            message: 'Job appears stuck. Attempting recovery...',
+            timestamp: new Date().toISOString(),
+          })
+          
+          const recoverResponse = await fetch(`/api/programs/generate/recover/${buildJobId}`, {
+            method: 'POST',
+          })
+          
+          const recoverPayload = (await recoverResponse.json()) as {
+            success?: boolean
+            error?: string
+            resumeFrom?: string
+          }
+          
+          if (!recoverResponse.ok) {
+            throw new Error(recoverPayload.error || 'Recovery request failed')
+          }
+          
+          setBuildStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: 'QUEUED',
+                  isWorking: true,
+                  error: null,
+                  currentPhase: 'queued',
+                  currentItem: null,
+                }
+              : prev
+          )
+
+          appendGenerationLog({
+            step: 'Recover',
+            status: 'completed',
+            message: recoverPayload.resumeFrom 
+              ? `Recovered. Resuming from: ${recoverPayload.resumeFrom}`
+              : 'Recovery complete. Reconnecting to background stream...',
+            timestamp: new Date().toISOString(),
+          })
+
+          await connectBuildStream(buildJobId, lastEventIndex)
+          return
+        }
+        
+        throw new Error(payload.error || 'Resume request failed')
       }
 
       setBuildStatus((prev) =>
@@ -761,20 +812,88 @@ export default function AdmissionsPage() {
       )
 
       appendGenerationLog({
-        step: 'Retry',
+        step: 'Resume',
         status: 'completed',
-        message: 'Retry queued. Reconnecting to background stream...',
+        message: payload.resumeFrom 
+          ? `Resuming from: ${payload.resumeFrom}`
+          : 'Resume queued. Reconnecting to background stream...',
         timestamp: new Date().toISOString(),
       })
 
       await connectBuildStream(buildJobId, lastEventIndex)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Retry failed'
+      const message = error instanceof Error ? error.message : 'Resume failed'
       setGenerationError(message)
       setIsGeneratingProgram(false)
 
       appendGenerationLog({
-        step: 'Retry',
+        step: 'Resume',
+        status: 'failed',
+        message,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+
+  const handleRecoverBuild = async () => {
+    if (!buildJobId) return
+
+    setGenerationError(null)
+    setIsGeneratingProgram(true)
+
+    appendGenerationLog({
+      step: 'Recover',
+      status: 'in_progress',
+      message: 'Attempting to recover stuck job...',
+      timestamp: new Date().toISOString(),
+    })
+
+    try {
+      const response = await fetch(`/api/programs/generate/recover/${buildJobId}`, {
+        method: 'POST',
+      })
+
+      const payload = (await response.json()) as {
+        success?: boolean
+        error?: string
+        resumeFrom?: string
+        checkpoint?: any
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Recovery request failed')
+      }
+
+      setBuildStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'QUEUED',
+              isWorking: true,
+              error: null,
+              currentPhase: 'queued',
+              currentItem: null,
+            }
+          : prev
+      )
+
+      appendGenerationLog({
+        step: 'Recover',
+        status: 'completed',
+        message: payload.resumeFrom 
+          ? `Recovered. Resuming from: ${payload.resumeFrom}`
+          : 'Recovery complete. Reconnecting to background stream...',
+        timestamp: new Date().toISOString(),
+      })
+
+      await connectBuildStream(buildJobId, lastEventIndex)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Recovery failed'
+      setGenerationError(message)
+      setIsGeneratingProgram(false)
+
+      appendGenerationLog({
+        step: 'Recover',
         status: 'failed',
         message,
         timestamp: new Date().toISOString(),
@@ -1002,7 +1121,15 @@ export default function AdmissionsPage() {
           buildJobId &&
           buildStatus.retryCount < buildStatus.maxRetries ? (
             <Button onClick={handleRetryBuild} disabled={isGeneratingProgram} size="sm">
-              Retry Build ({buildStatus.retryCount}/{buildStatus.maxRetries})
+              Resume build ({buildStatus.retryCount}/{buildStatus.maxRetries})
+            </Button>
+          ) : null}
+
+          {buildStatus?.status === 'RUNNING' &&
+          buildJobId &&
+          !buildStatus.isWorking ? (
+            <Button onClick={handleRecoverBuild} disabled={isGeneratingProgram} size="sm" variant="secondary">
+              Recover stuck build
             </Button>
           ) : null}
         </CardContent>

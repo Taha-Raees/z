@@ -1,7 +1,7 @@
 import Link from 'next/link'
-import { BookOpen, FileWarning, Library, NotebookPen } from 'lucide-react'
+import { BookOpen, FileWarning, NotebookPen } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
-import { AppShell, Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, PageHeader } from '@/components/ui'
+import { AppShell, Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, LessonResources, PageHeader } from '@/components/ui'
 import { productNav } from '@/lib/app-navigation'
 
 function parseJson<T>(value: string | null | undefined): T | null {
@@ -88,36 +88,19 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Library className="h-4 w-4" />
-                Lecture resources
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {lesson.resources.length > 0 ? (
-                <div className="space-y-2">
-                  {lesson.resources.map((resource) => (
-                    <a
-                      key={resource.id}
-                      href={resource.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block rounded-xl border border-border/70 bg-muted/30 px-3 py-2 hover:bg-muted/50"
-                    >
-                      <p className="text-sm font-medium text-foreground">{resource.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {resource.type} • Quality {(resource.qualityScore * 100).toFixed(0)}%
-                      </p>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState title="Resources pending" description="Resources are still being curated for this lesson." />
-              )}
-            </CardContent>
-          </Card>
+          <LessonResources
+            lessonId={lesson.id}
+            initialResources={lesson.resources.map((r) => ({
+              id: r.id,
+              type: r.type,
+              title: r.title,
+              url: r.url,
+              durationSeconds: r.durationSeconds,
+              qualityScore: r.qualityScore,
+              sourceMeta: parseJson(r.sourceMetaJson),
+              retrievedAt: r.retrievedAt.toISOString(),
+            }))}
+          />
 
           <Card>
             <CardHeader>

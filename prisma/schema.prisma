@@ -471,8 +471,10 @@ enum JobEventLevel {
 model JobRun {
   id          String     @id @default(cuid())
   userId      String
-  type        String     // 'program_build', 'daily_run', 'lesson_generate', 'practice_generate', 'review_generate'
+  type        String     // 'program_build', 'daily_run', 'lesson_generate', 'practice_generate', 'review_generate', 'lesson_resource_refresh'
   status      JobStatus  @default(READY)
+  programId   String?    // Optional: associated program
+  lessonId    String?    // Optional: associated lesson (for resource refresh jobs)
   inputJson   String     @default("{}")
   outputJson  String     @default("{}")
   error       String?
@@ -490,6 +492,8 @@ model JobRun {
   @@index([userId])
   @@index([userId, status])
   @@index([type, status])
+  @@index([programId])
+  @@index([lessonId])
   @@index([createdAt])
   @@map("job_runs")
 }
@@ -629,6 +633,7 @@ model LessonContext {
   keyTopicsJson     String   @default("[]")
   difficultyLevel   String?
   expectedMinutes   Int?
+  resourcePlanJson String   @default("{}") // LLM-decided resource plan: targetVideoCount, targetReadingCount, preferredFormat, rationale
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

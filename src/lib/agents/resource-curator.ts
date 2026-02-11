@@ -12,6 +12,7 @@
 
 import { ResourceCandidateSchema, type ResourceCandidate, type LessonBlueprint } from '../schemas'
 import { resolveLanguagePolicy, type LanguagePolicy } from '../language'
+import type { ContextPack } from '../context-store'
 
 type SearchHit = {
   title: string
@@ -29,6 +30,14 @@ const DEFAULT_RESOURCE_COUNT = 4
 const SHORTS_THRESHOLD_SECONDS = 240 // 4 minutes
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+// Duration cache to avoid repeated YouTube watch page fetches
+const durationCache = new Map<string, { durationSeconds: number | null; timestamp: number }>()
+const DURATION_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
+
+// Rate limiting for YouTube watch page fetches
+const YOUTUBE_FETCH_QUEUE = new Map<string, Promise<{ durationSeconds: number | null }>>()
+const MAX_CONCURRENT_YOUTUBE_FETCHES = 3
 
 const BLOCKED_HOSTS = new Set([
   'example.com',
@@ -225,13 +234,15 @@ class ResourceCuratorAgent {
 
   /**
    * Search for resources for a specific lesson
+   * Uses context pack for RAG-lite awareness of program/lesson context
    */
   async findResources(
     topic: string,
     lesson: LessonBlueprint,
     moduleTitle: string,
     preferences: any,
-    languagePolicy?: Partial<LanguagePolicy>
+    languagePolicy?: Partial<LanguagePolicy>,
+    contextPack?: ContextPack
   ): Promise<ResourceCandidate[]> {
     const policy = resolveLanguagePolicy(languagePolicy)
 
@@ -242,6 +253,7 @@ class ResourceCuratorAgent {
       objectives: lesson.objectives,
       keyTopics: lesson.keyTopics,
       contentLanguage: policy.contentLanguage,
+      contextHash: contextPack?.formattedPrompt?.slice(0, 100) || '',
     })
 
     const cached = this.cache.get(cacheKey)
@@ -250,12 +262,13 @@ class ResourceCuratorAgent {
     }
 
     // Calculate target resource count based on lesson complexity
-    const targetCount = this.calculateTargetResourceCount(lesson, preferences)
+    // Use resource plan from context if available
+    const targetCount = this.calculateTargetResourceCount(lesson, preferences, contextPack?.lessonContext?.resourcePlan)
 
-    const queries = this.generateSearchQueries(topic, lesson, moduleTitle, policy)
+    const queries = this.generateSearchQueries(topic, lesson, moduleTitle, policy, contextPack)
 
     const discoveredHits = await this.searchBackedDiscovery(queries)
-    const candidateResources = this.mapHitsToCandidates(discoveredHits, lesson, preferences)
+    const candidateResources = this.mapHitsToCandidates(discoveredHits, lesson, preferences, contextPack)
     const validatedResources = await this.validateResourceUrls(candidateResources)
     const curated = this.enforceDiversity(validatedResources, targetCount)
 
@@ -269,8 +282,26 @@ class ResourceCuratorAgent {
 
   /**
    * Calculate target resource count based on lesson complexity
+   * Uses resource plan from context if available (LLM-decided count)
    */
-  private calculateTargetResourceCount(lesson: LessonBlueprint, preferences: any): number {
+  private calculateTargetResourceCount(
+    lesson: LessonBlueprint,
+    preferences: any,
+    resourcePlan?: { targetVideoCount: number; targetReadingCount?: number; preferredFormat?: string; rationale: string }
+  ): number {
+    // Use LLM-decided resource plan if available
+    if (resourcePlan?.targetVideoCount) {
+      const videoPref = Number(preferences?.videoPreference) || 50
+      // Adjust based on video preference
+      const adjustedCount = videoPref > 70
+        ? Math.min(MAX_RESOURCE_COUNT, resourcePlan.targetVideoCount + 1)
+        : videoPref < 30
+          ? Math.max(MIN_RESOURCE_COUNT, resourcePlan.targetVideoCount - 1)
+          : resourcePlan.targetVideoCount
+      return Math.max(MIN_RESOURCE_COUNT, Math.min(MAX_RESOURCE_COUNT, adjustedCount))
+    }
+
+    // Fallback to heuristic if no resource plan
     const estimatedMinutes = lesson.estimatedMinutes || 30
     const objectivesCount = lesson.objectives.length
     const keyTopicsCount = lesson.keyTopics.length
@@ -363,7 +394,7 @@ class ResourceCuratorAgent {
   }
 
   /**
-   * Extract YouTube video duration and detect Shorts
+   * Extract YouTube video duration and detect Shorts (with caching)
    */
   private async extractYouTubeDuration(url: string): Promise<{ durationSeconds: number | null; isShort: boolean }> {
     const videoId = extractYouTubeVideoId(url)
@@ -371,6 +402,40 @@ class ResourceCuratorAgent {
       return { durationSeconds: null, isShort: false }
     }
 
+    // Check cache first
+    const cached = durationCache.get(videoId)
+    if (cached && Date.now() - cached.timestamp < DURATION_CACHE_TTL_MS) {
+      return {
+        durationSeconds: cached.durationSeconds,
+        isShort: cached.durationSeconds !== null && cached.durationSeconds < SHORTS_THRESHOLD_SECONDS,
+      }
+    }
+
+    // Rate limiting: wait if too many concurrent fetches
+    while (YOUTUBE_FETCH_QUEUE.size >= MAX_CONCURRENT_YOUTUBE_FETCHES) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+
+    const fetchPromise = this.fetchDurationInternal(videoId, url)
+    YOUTUBE_FETCH_QUEUE.set(videoId, fetchPromise)
+
+    try {
+      const result = await fetchPromise
+      // Cache the result
+      durationCache.set(videoId, {
+        durationSeconds: result.durationSeconds,
+        timestamp: Date.now(),
+      })
+      return result
+    } finally {
+      YOUTUBE_FETCH_QUEUE.delete(videoId)
+    }
+  }
+
+  /**
+   * Internal method to fetch duration from YouTube watch page
+   */
+  private async fetchDurationInternal(videoId: string, url: string): Promise<{ durationSeconds: number | null; isShort: boolean }> {
     try {
       const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
       const html = await this.fetchText(watchUrl)
@@ -428,12 +493,14 @@ class ResourceCuratorAgent {
 
   /**
    * Generate search queries for finding resources
+   * Uses context pack to include program goals and module outcomes
    */
   private generateSearchQueries(
     topic: string,
     lesson: LessonBlueprint,
     moduleTitle: string,
-    languagePolicy?: Partial<LanguagePolicy>
+    languagePolicy?: Partial<LanguagePolicy>,
+    contextPack?: ContextPack
   ): string[] {
     const policy = resolveLanguagePolicy(languagePolicy)
     const objectiveChunk = lesson.objectives.slice(0, 2).join(' ')
@@ -443,20 +510,66 @@ class ResourceCuratorAgent {
     // Negative keywords to exclude low-quality content
     const negativeKeywords = '-shorts -tiktok -reels -viral -meme -funny -prank'
 
-    // Generate diverse queries for better coverage
-    const queries = [
-      `${topic} ${lesson.title} full course tutorial ${negativeKeywords}`,
-      `${topic} ${moduleTitle} ${lesson.title} lecture ${negativeKeywords}`,
-      `${topic} ${objectiveChunk} explained ${negativeKeywords}`,
-      `${topic} ${keyTopicChunk} complete guide ${negativeKeywords}`,
-      `"${lesson.title}" ${topic} youtube playlist ${negativeKeywords}`,
-      `${topic} ${lesson.title} ${language} crash course ${negativeKeywords}`,
-      `learn ${topic} ${keyTopicChunk} step by step ${negativeKeywords}`,
-      `${topic} ${lesson.title} for beginners tutorial ${negativeKeywords}`,
-      `${topic} ${lesson.title} advanced tutorial ${negativeKeywords}`,
-      `${topic} ${moduleTitle} complete series ${negativeKeywords}`,
-    ]
+    // Add quality keywords for better results
+    const qualityKeywords = 'tutorial full course lecture playlist series'
 
+    // Build context-aware queries
+    const queries: string[] = []
+
+    // Base queries with lesson and module context
+    queries.push(`${topic} ${lesson.title} ${qualityKeywords} ${negativeKeywords}`)
+    queries.push(`${topic} ${moduleTitle} ${lesson.title} lecture ${negativeKeywords}`)
+
+    // Use lesson objectives for targeted queries
+    if (lesson.objectives.length > 0) {
+      queries.push(`${topic} ${objectiveChunk} explained ${negativeKeywords}`)
+    }
+
+    // Use key topics for broader coverage
+    if (lesson.keyTopics.length > 0) {
+      queries.push(`${topic} ${keyTopicChunk} complete guide ${negativeKeywords}`)
+    }
+
+    // Playlist queries for complex lessons
+    if (lesson.estimatedMinutes > 45 || lesson.objectives.length > 3) {
+      queries.push(`"${lesson.title}" ${topic} youtube playlist ${negativeKeywords}`)
+      queries.push(`${topic} ${moduleTitle} complete series ${negativeKeywords}`)
+    }
+
+    // Language-specific queries
+    if (language && language !== 'en') {
+      queries.push(`${topic} ${lesson.title} ${language} tutorial ${negativeKeywords}`)
+    }
+
+    // Use context pack for additional queries if available
+    if (contextPack?.programContext) {
+      const pc = contextPack.programContext
+      // Add queries based on program goals
+      if (pc.constraints.goalLevel) {
+        queries.push(`${topic} ${lesson.title} ${pc.constraints.goalLevel} tutorial ${negativeKeywords}`)
+      }
+    }
+
+    if (contextPack?.moduleContext) {
+      const mc = contextPack.moduleContext
+      // Add queries based on module outcomes
+      if (mc.outcomes.length > 0) {
+        const outcomeChunk = mc.outcomes.slice(0, 1).join(' ')
+        queries.push(`${topic} ${outcomeChunk} ${lesson.title} ${negativeKeywords}`)
+      }
+    }
+
+    // Beginner/Advanced specific queries
+    if (contextPack?.lessonContext?.difficultyLevel) {
+      const difficulty = contextPack.lessonContext.difficultyLevel
+      if (difficulty === 'beginner') {
+        queries.push(`${topic} ${lesson.title} for beginners tutorial ${negativeKeywords}`)
+      } else if (difficulty === 'advanced') {
+        queries.push(`${topic} ${lesson.title} advanced tutorial ${negativeKeywords}`)
+      }
+    }
+
+    // Deduplicate and limit
     return queries
       .map((q) => q.trim().replace(/\s+/g, ' '))
       .filter((q, i, arr) => q.length > 0 && arr.indexOf(q) === i)
@@ -622,12 +735,17 @@ class ResourceCuratorAgent {
   private mapHitsToCandidates(
     hits: SearchHit[],
     lesson: LessonBlueprint,
-    preferences: any
+    preferences: any,
+    contextPack?: ContextPack
   ): ResourceCandidate[] {
+    // Build objective tokens from lesson and context
     const objectiveTokens = tokenize([
       lesson.title,
       ...lesson.objectives,
       ...lesson.keyTopics,
+      // Add context-aware tokens if available
+      ...(contextPack?.moduleContext?.outcomes || []),
+      ...(contextPack?.programContext?.moduleOutlines?.flatMap(m => m.outcomes) || []),
     ].join(' '))
 
     const candidates: ResourceCandidate[] = []
@@ -667,7 +785,24 @@ class ResourceCuratorAgent {
           ? 0.12
           : 0
 
-      const qualityScore = clamp(0.45 + domainBoost + overlap * 0.3 + preferenceBoost + tutorialBoost, 0, 1)
+      // Context-aware boost: check if resource matches program goals
+      let contextBoost = 0
+      if (contextPack?.programContext) {
+        const pc = contextPack.programContext
+        const goalTokens = tokenize(pc.profileSummary + ' ' + pc.planSummary)
+        const goalOverlap = overlapScore(goalTokens, tokenize(text))
+        contextBoost += Math.min(0.08, goalOverlap * 0.2)
+      }
+
+      // Context-aware boost: check if resource matches module outcomes
+      if (contextPack?.moduleContext) {
+        const mc = contextPack.moduleContext
+        const outcomeTokens = tokenize(mc.outcomes.join(' '))
+        const outcomeOverlap = overlapScore(outcomeTokens, tokenize(text))
+        contextBoost += Math.min(0.08, outcomeOverlap * 0.2)
+      }
+
+      const qualityScore = clamp(0.45 + domainBoost + overlap * 0.3 + preferenceBoost + tutorialBoost + contextBoost, 0, 1)
 
       const title = hit.title && hit.title.trim().length > 0 ? hit.title.trim() : parsed.hostname
       const description = hit.snippet && hit.snippet.trim().length > 0

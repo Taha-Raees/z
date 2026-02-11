@@ -51,10 +51,34 @@ export async function POST(
       keyTopics: objectives.slice(0, 3),
     }
 
-    // Get learning preferences from program (default if not available)
-    const preferences = {
-      videoPreference: 70,
-      readingPreference: 30,
+    // Get learning preferences from ProgramContext (stored during program build)
+    const programContext = await prisma.programContext.findUnique({
+      where: { programId: program.id },
+    })
+
+    // Parse preferences from context or use sensible defaults
+    let preferences: { videoPreference: number; readingPreference: number }
+    if (programContext?.constraintsJson) {
+      try {
+        const constraints = JSON.parse(programContext.constraintsJson) as {
+          hoursPerDay?: number
+          currentLevel?: string
+          goalLevel?: string
+        }
+        // Infer preferences from hours per day - more hours = more video preference
+        const hoursPerDay = constraints.hoursPerDay ?? 2
+        const videoPref = Math.min(80, Math.max(40, hoursPerDay * 20))
+        preferences = {
+          videoPreference: videoPref,
+          readingPreference: 100 - videoPref,
+        }
+      } catch {
+        // Fallback to defaults if parsing fails
+        preferences = { videoPreference: 60, readingPreference: 40 }
+      }
+    } else {
+      // Fallback to defaults if no context exists
+      preferences = { videoPreference: 60, readingPreference: 40 }
     }
 
     // Get language policy from program
@@ -64,14 +88,15 @@ export async function POST(
       strictTargetLanguage: program.strictTargetLanguage,
     }
 
-    // Use resource curator to find new resources
+    // Use resource curator to find new resources with context pack
     const resourceCurator = getResourceCuratorAgent()
     const newResources = await resourceCurator.findResources(
       program.topic,
       lessonBlueprint,
       lesson.module.title,
       preferences,
-      languagePolicy
+      languagePolicy,
+      contextPack
     )
 
     // Replace existing resources with new ones
