@@ -1,0 +1,523 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User & Authentication
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  name          String?
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  studentProfile StudentProfile?
+  accounts       Account[]
+  sessions       Session[]
+  programs       Program[]
+  exerciseAttempts ExerciseAttempt[]
+  assessmentAttempts AssessmentAttempt[]
+  progress       Progress[]
+  agentRuns      AgentRun[]
+  onboardingSessions OnboardingSession[]
+  programBuildJobs ProgramBuildJob[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// Student Profile
+// ============================================
+
+model StudentProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  timezone         String   @default("UTC")
+  preferencesJson  String   @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("student_profiles")
+}
+
+// ============================================
+// Onboarding
+// ============================================
+
+model OnboardingSession {
+  id          String             @id @default(cuid())
+  userId      String
+  status      OnboardingStatus   @default(ACTIVE)
+  startedAt   DateTime           @default(now())
+  completedAt DateTime?
+
+  answers     OnboardingAnswer[]
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("onboarding_sessions")
+}
+
+model OnboardingAnswer {
+  id          String   @id @default(cuid())
+  sessionId   String
+  questionKey String
+  answerJson  String
+  createdAt   DateTime @default(now())
+
+  session OnboardingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("onboarding_answers")
+}
+
+enum OnboardingStatus {
+  ACTIVE
+  COMPLETE
+  ABANDONED
+}
+
+// ============================================
+// Program & Curriculum
+// ============================================
+
+model Program {
+  id            String   @id @default(cuid())
+  userId        String
+  topic         String
+  goal          String
+  targetDate    DateTime
+  hoursPerDay   Int      @default(2)
+  currentLevel  String
+  contentLanguage String  @default("English")
+  instructionLanguage String @default("English")
+  strictTargetLanguage Boolean @default(true)
+  status        ProgramStatus @default(DRAFT)
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  modules       Module[]
+  assessments   Assessment[]
+  schedules     Schedule[]
+  progress      Progress[]
+  buildJobs     ProgramBuildJob[]
+
+  @@map("programs")
+}
+
+model Module {
+  id            String   @id @default(cuid())
+  programId     String
+  index         Int
+  title         String
+  outcomesJson  String   @default("[]")
+  buildStatus   ContentBuildStatus @default(PENDING)
+  buildError    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  program       Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  lessons       Lesson[]
+  assessments   Assessment[]
+
+  @@unique([programId, index])
+  @@map("modules")
+}
+
+model Lesson {
+  id               String   @id @default(cuid())
+  moduleId         String
+  index            Int
+  title            String
+  objectivesJson   String   @default("[]")
+  estimatedMinutes Int      @default(30)
+  buildStatus      ContentBuildStatus @default(PENDING)
+  buildError       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  module           Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  resources        Resource[]
+  notes            LessonNote?
+  exerciseSets     ExerciseSet[]
+  progress         Progress[]
+
+  @@unique([moduleId, index])
+  @@map("lessons")
+}
+
+model Resource {
+  id              String   @id @default(cuid())
+  lessonId        String
+  type            ResourceType
+  title           String
+  url             String
+  durationSeconds Int?
+  sourceMetaJson  String   @default("{}")
+  qualityScore    Float    @default(0)
+  retrievedAt     DateTime @default(now())
+
+  lesson          Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@map("resources")
+}
+
+enum ResourceType {
+  YOUTUBE
+  ARTICLE
+  BOOK
+  PODCAST
+  OTHER
+}
+
+model LessonNote {
+  id            String   @id @default(cuid())
+  lessonId      String   @unique
+  contentMarkdown String  @default("")
+  glossaryJson   String   @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lesson        Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@map("lesson_notes")
+}
+
+// ============================================
+// Exercises & Practice
+// ============================================
+
+model ExerciseSet {
+  id             String   @id @default(cuid())
+  lessonId       String
+  difficulty     Difficulty
+  type           ExerciseType
+  schemaVersion  String   @default("1.0")
+  contentJson    String   @default("[]")
+  createdAt      DateTime @default(now())
+
+  lesson         Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  attempts       ExerciseAttempt[]
+
+  @@map("exercise_sets")
+}
+
+model ExerciseAttempt {
+  id             String   @id @default(cuid())
+  exerciseSetId  String
+  userId         String
+  answersJson    String   @default("{}")
+  score          Float?
+  feedbackJson   String   @default("{}")
+  createdAt      DateTime @default(now())
+
+  exerciseSet    ExerciseSet @relation(fields: [exerciseSetId], references: [id], onDelete: Cascade)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("exercise_attempts")
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ExerciseType {
+  MIXED
+  READING
+  LISTENING
+  SPEAKING
+  WRITING
+  GRAMMAR
+  VOCABULARY
+}
+
+// ============================================
+// Assessments
+// ============================================
+
+model Assessment {
+  id             String   @id @default(cuid())
+  programId      String
+  moduleId       String?
+  type           AssessmentType
+  title          String
+  rubricJson     String   @default("{}")
+  contentJson    String   @default("[]")
+  createdAt      DateTime @default(now())
+
+  program        Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  module         Module?  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  attempts       AssessmentAttempt[]
+
+  @@map("assessments")
+}
+
+model AssessmentAttempt {
+  id             String   @id @default(cuid())
+  assessmentId   String
+  userId         String
+  answersJson    String   @default("{}")
+  score          Float?
+  feedbackJson   String   @default("{}")
+  startedAt      DateTime @default(now())
+  submittedAt    DateTime?
+  gradedAt       DateTime?
+
+  assessment     Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("assessment_attempts")
+}
+
+enum AssessmentType {
+  QUIZ
+  TEST
+  EXAM
+}
+
+// ============================================
+// Schedule & Planning
+// ============================================
+
+model Schedule {
+  id          String   @id @default(cuid())
+  programId   String
+  timezone    String   @default("UTC")
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime @default(now())
+
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  items       ScheduleItem[]
+
+  @@map("schedules")
+}
+
+model ScheduleItem {
+  id              String   @id @default(cuid())
+  scheduleId      String
+  date            DateTime
+  type            ScheduleItemType
+  refId           String?
+  estimatedMinutes Int
+  status          ScheduleItemStatus @default(PENDING)
+
+  schedule        Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@map("schedule_items")
+}
+
+enum ScheduleItemType {
+  LESSON
+  EXERCISE
+  QUIZ
+  TEST
+  EXAM
+  REVIEW
+  BREAK
+}
+
+enum ScheduleItemStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+// ============================================
+// Progress Tracking
+// ============================================
+
+model Progress {
+  id          String   @id @default(cuid())
+  userId      String
+  programId   String
+  lessonId    String?
+  metricKey   String
+  valueNumber Float?
+  valueJson   String   @default("{}")
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  lesson      Lesson?  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, programId, lessonId, metricKey])
+  @@map("progress")
+}
+
+// ============================================
+// Agent Runs (Audit Trail)
+// ============================================
+
+model AgentRun {
+  id          String   @id @default(cuid())
+  userId      String
+  programId   String?
+  agentName   String
+  inputJson   String   @default("{}")
+  outputJson  String   @default("{}")
+  status      AgentRunStatus @default(PENDING)
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  traceId     String?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("agent_runs")
+}
+
+enum AgentRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ProgramStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+// ============================================
+// Background Program Build Jobs
+// ============================================
+
+model ProgramBuildJob {
+  id               String         @id @default(cuid())
+  userId           String
+  programId        String
+  status           BuildJobStatus @default(QUEUED)
+  currentPhase     String?
+  currentItem      String?
+  totalModules     Int            @default(0)
+  completedModules Int            @default(0)
+  totalLessons     Int            @default(0)
+  completedLessons Int            @default(0)
+  retryCount       Int            @default(0)
+  maxRetries       Int            @default(2)
+  lastEventIndex   Int            @default(0)
+  inputProfileJson String         @default("{}")
+  planJson         String?
+  error            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  lastHeartbeatAt  DateTime?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  events  ProgramBuildEvent[]
+
+  @@index([programId])
+  @@index([userId, status])
+  @@map("program_build_jobs")
+}
+
+model ProgramBuildEvent {
+  id         String          @id @default(cuid())
+  jobId      String
+  index      Int
+  level      BuildEventLevel @default(INFO)
+  type       String
+  step       String
+  status     BuildStepStatus
+  message    String?
+  payloadJson String         @default("{}")
+  createdAt  DateTime        @default(now())
+
+  job ProgramBuildJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, index])
+  @@index([jobId, createdAt])
+  @@map("program_build_events")
+}
+
+enum BuildJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum BuildStepStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum BuildEventLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+enum ContentBuildStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}

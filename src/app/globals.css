@@ -1,0 +1,225 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    
+    /* Refined indigo primary */
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    
+    /* Soft secondary */
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    
+    /* Muted elements */
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 16% 47%;
+    
+    /* Subtle accent */
+    --accent: 220 14% 96%;
+    --accent-foreground: 222 47% 11%;
+    
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Borders and inputs */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 239 84% 67%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 8%;
+    --popover-foreground: 210 40% 98%;
+    
+    --primary: 239 84% 70%;
+    --primary-foreground: 222 47% 11%;
+    
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 239 84% 70%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  /* Apple-like card style */
+  .card-apple {
+    @apply bg-white/80 backdrop-blur-xl border border-white/20 shadow-[0_2px_20px_-4px_rgba(0,0,0,0.08)];
+    @apply rounded-2xl;
+    @apply transition-all duration-300 ease-out;
+  }
+  
+  .card-apple:hover {
+    @apply shadow-[0_8px_30px_-4px_rgba(0,0,0,0.12)];
+    @apply transform -translate-y-0.5;
+  }
+  
+  /* Primary button style */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground;
+    @apply px-5 py-2.5 rounded-xl;
+    @apply font-medium text-sm;
+    @apply shadow-[0_1px_2px_rgba(0,0,0,0.1),0_4px_8px_rgba(99,102,241,0.25)];
+    @apply transition-all duration-200 ease-out;
+    @apply hover:shadow-[0_2px_4px_rgba(0,0,0,0.1),0_8px_16px_rgba(99,102,241,0.3)];
+    @apply hover:transform hover:-translate-y-px;
+    @apply active:transform active:translate-y-0;
+  }
+  
+  /* Secondary button style */
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground;
+    @apply px-5 py-2.5 rounded-xl;
+    @apply font-medium text-sm;
+    @apply border border-border;
+    @apply transition-all duration-200 ease-out;
+    @apply hover:bg-muted hover:border-muted-foreground/20;
+    @apply active:transform active:scale-[0.98];
+  }
+  
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl;
+    @apply border border-white/30;
+  }
+  
+  /* Section container */
+  .section-apple {
+    @apply max-w-6xl mx-auto px-6;
+  }
+  
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent;
+  }
+  
+  /* Smooth link hover */
+  .link-smooth {
+    @apply transition-colors duration-200 ease-out;
+    @apply hover:text-primary;
+  }
+  
+  /* Input field style */
+  .input-apple {
+    @apply bg-muted/50 border border-border;
+    @apply rounded-xl px-4 py-3;
+    @apply transition-all duration-200;
+    @apply focus:bg-white focus:border-primary/50 focus:ring-2 focus:ring-primary/20;
+    @apply placeholder:text-muted-foreground/60;
+  }
+  
+  /* Badge style */
+  .badge-apple {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full;
+    @apply text-xs font-medium;
+    @apply bg-secondary text-secondary-foreground;
+  }
+  
+  /* Progress bar style */
+  .progress-apple {
+    @apply h-2 rounded-full bg-muted overflow-hidden;
+  }
+  
+  .progress-apple > div {
+    @apply h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500;
+    @apply transition-all duration-500 ease-out;
+  }
+}
+
+@layer utilities {
+  /* Subtle animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+  
+  .animate-slide-up {
+    animation: slideUp 0.5s ease-out;
+  }
+  
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
+  }
+  
+  /* Hover lift effect */
+  .hover-lift {
+    @apply transition-transform duration-300 ease-out;
+  }
+  
+  .hover-lift:hover {
+    @apply -translate-y-1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
