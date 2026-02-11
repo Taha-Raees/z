@@ -6,8 +6,6 @@
 
 // Re-export types from OpenRouter client for compatibility
 export type {
-  OpenRouterModel,
-  ModelCapabilities,
   ChatMessage,
   ChatCompletionOptions,
   ChatCompletionResponse,

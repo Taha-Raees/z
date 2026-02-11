@@ -149,7 +149,14 @@ async function testExerciseGeneratorAgent() {
     console.log('\nFirst Question:')
     const q = exerciseSet.questions[0]
     console.log('  Type:', q.type)
-    console.log('  Question:', q.question?.substring(0, 100) + '...')
+    // Different exercise types have different properties
+    if ('question' in q && q.question) {
+      console.log('  Question:', (q.question as string).substring(0, 100) + '...')
+    } else if ('prompt' in q && q.prompt) {
+      console.log('  Prompt:', (q.prompt as string).substring(0, 100) + '...')
+    } else if ('statement' in q && q.statement) {
+      console.log('  Statement:', (q.statement as string).substring(0, 100) + '...')
+    }
   }
   
   // Test 2: Generate targeted practice
