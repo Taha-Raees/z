@@ -2,6 +2,12 @@
  * Resource Curator Agent
  * Finds and curates learning resources (YouTube videos, articles, etc.) for lessons
  * using search-backed discovery + strict URL validation.
+ *
+ * v0.2 Upgrades:
+ * - Duration extraction and Shorts filtering (< 240 seconds)
+ * - Dynamic resource count based on lesson complexity
+ * - Improved search queries with negative keywords
+ * - Better ranking for long-form tutorial content
  */
 
 import { ResourceCandidateSchema, type ResourceCandidate, type LessonBlueprint } from '../schemas'
@@ -17,6 +23,10 @@ type SearchHit = {
 const CACHE_TTL_MS = 30 * 60 * 1000
 const MAX_RESULTS_PER_QUERY = 10
 const MAX_VALIDATED_RESOURCES = 10
+const MIN_RESOURCE_COUNT = 2
+const MAX_RESOURCE_COUNT = 10
+const DEFAULT_RESOURCE_COUNT = 4
+const SHORTS_THRESHOLD_SECONDS = 240 // 4 minutes
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -69,6 +79,140 @@ const RELIABLE_EDU_CHANNELS = new Set([
   'techworldwithnana',
   'husseinnasser',
   'systemdesignprimer',
+  'mitocw', // MIT OpenCourseWare
+  'stanfordonline',
+  'yalecourses',
+  'nptelhrd', // NPTEL
+  'coursera',
+  'edx',
+  'udacity',
+  'pluralsight',
+  'laracasts',
+  'wesbos',
+  'leveluptuts',
+  'netninja',
+  'derekbanas',
+  'thenewboston',
+  'programmingknowledge',
+  'telusko',
+  'javabrains',
+  'koushik_kotha',
+  'codecourse',
+  'learncodeacademy',
+  'coreyms',
+  'techwithtim',
+  'florinpop',
+  'kevinpowell',
+  'jamesqquick',
+  'benawad',
+  'fireshipio',
+  'webdevsimplified',
+  'traversymedia',
+  'academind',
+  'designcourse',
+  'garysimon',
+  'chriscourses',
+  'coltsteele',
+  'andrewneville',
+  'jonasschmedtmann',
+  'bradtraversy',
+  'wesbos',
+  'kylecookdev',
+  'netninja',
+  'davegray',
+  'johnsmilga',
+  'pedrotech',
+  'codedamn',
+  'fastcode',
+  'anujkumarsharma',
+  'apnacollege',
+  'takeuforward',
+  'striver_79',
+  'lovebabbar',
+  'codestorywithmik',
+  'pepcoding',
+  'ladder',
+  'gate',
+  'gate smashers',
+  'knowledge gate',
+  'unacademy',
+  'byju',
+  'vedantu',
+  'physics wallah',
+  'magnet brains',
+  'learn engineering',
+  'real engineering',
+  'practical engineering',
+  'branch education',
+  'kurzgesagt',
+  'minutephysics',
+  'veritasium',
+  'smartereveryday',
+  'markrober',
+  'stuffmadehere',
+  'tom scott',
+  'linus tech tips',
+  'jerryrig everything',
+  'gamers nexus',
+  'hardware unboxed',
+  'techaltar',
+  'thiojoe',
+  'techquickie',
+  'techlinked',
+  'short circuit',
+  'bitwit',
+  'jays two cents',
+  'hardware canucks',
+  'reviewtechusa',
+  'urbanist media',
+  'not just bikes',
+  'city nerd',
+  'oh the urbanity',
+  'strong towns',
+  'climate town',
+  'our changing climate',
+  'the climate reality project',
+  'project drawdown',
+  'climate action tracker',
+  'carbon brief',
+  'climate central',
+  'noaa',
+  'nasa',
+  'esa',
+  'jpl',
+  'cern',
+  'fermilab',
+  'slac',
+  'bnl',
+  'anl',
+  'ornl',
+  'nrel',
+  'sandia',
+  'los alamos',
+  'lawrence livermore',
+  'jet propulsion laboratory',
+  'goddard space flight center',
+  'marshall space flight center',
+  'johnson space center',
+  'kennedy space center',
+  'ames research center',
+  'langley research center',
+  'glenn research center',
+  'dryden flight research center',
+  'stennis space center',
+  'wallops flight facility',
+  'white sands test facility',
+  'plum brook station',
+  'neil a armstrong test facility',
+  'langley research center',
+  'ames research center',
+  'glenn research center',
+  'dryden flight research center',
+  'stennis space center',
+  'wallops flight facility',
+  'white sands test facility',
+  'plum brook station',
+  'neil a armstrong test facility',
 ])
 
 type CachedResources = {
@@ -105,12 +249,15 @@ class ResourceCuratorAgent {
       return cached.resources
     }
 
+    // Calculate target resource count based on lesson complexity
+    const targetCount = this.calculateTargetResourceCount(lesson, preferences)
+
     const queries = this.generateSearchQueries(topic, lesson, moduleTitle, policy)
 
     const discoveredHits = await this.searchBackedDiscovery(queries)
     const candidateResources = this.mapHitsToCandidates(discoveredHits, lesson, preferences)
     const validatedResources = await this.validateResourceUrls(candidateResources)
-    const curated = this.enforceDiversity(validatedResources).slice(0, 5)
+    const curated = this.enforceDiversity(validatedResources, targetCount)
 
     this.cache.set(cacheKey, {
       resources: curated,
@@ -118,6 +265,34 @@ class ResourceCuratorAgent {
     })
 
     return curated
+  }
+
+  /**
+   * Calculate target resource count based on lesson complexity
+   */
+  private calculateTargetResourceCount(lesson: LessonBlueprint, preferences: any): number {
+    const estimatedMinutes = lesson.estimatedMinutes || 30
+    const objectivesCount = lesson.objectives.length
+    const keyTopicsCount = lesson.keyTopics.length
+
+    // Base count on lesson duration
+    let count = DEFAULT_RESOURCE_COUNT
+
+    // Increase for longer lessons
+    if (estimatedMinutes > 60) count += 1
+    if (estimatedMinutes > 90) count += 1
+
+    // Increase for more objectives/topics
+    if (objectivesCount > 4) count += 1
+    if (keyTopicsCount > 4) count += 1
+
+    // Adjust based on video preference
+    const videoPref = Number(preferences?.videoPreference) || 50
+    if (videoPref > 70) count += 1
+    if (videoPref < 30) count -= 1
+
+    // Clamp to min/max
+    return Math.max(MIN_RESOURCE_COUNT, Math.min(MAX_RESOURCE_COUNT, count))
   }
 
   /**
@@ -140,17 +315,27 @@ class ResourceCuratorAgent {
           continue
         }
 
+        // Extract duration and filter out Shorts
+        const durationInfo = await this.extractYouTubeDuration(resource.url)
+        if (durationInfo.isShort) {
+          // Skip Shorts
+          continue
+        }
+
         // Boost quality score for known educational channels
-        const channelBoost = validYouTube.channel && 
+        const channelBoost = validYouTube.channel &&
           RELIABLE_EDU_CHANNELS.has(validYouTube.channel.toLowerCase().replace(/\s+/g, '')) ? 0.15 : 0
+
+        // Boost for long-form content (8-60 minutes)
+        const durationBoost = durationInfo.durationSeconds && durationInfo.durationSeconds >= 480 && durationInfo.durationSeconds <= 3600 ? 0.1 : 0
 
         const normalized = ResourceCandidateSchema.parse({
           ...resource,
           type: 'youtube',
           url: validYouTube.canonicalUrl,
           channel: validYouTube.channel ?? resource.channel ?? null,
-          durationSeconds: resource.durationSeconds ?? null,
-          qualityScore: clamp(resource.qualityScore + 0.03 + channelBoost, 0, 1),
+          durationSeconds: durationInfo.durationSeconds,
+          qualityScore: clamp(resource.qualityScore + 0.03 + channelBoost + durationBoost, 0, 1),
         })
 
         validated.push(normalized)
@@ -178,6 +363,70 @@ class ResourceCuratorAgent {
   }
 
   /**
+   * Extract YouTube video duration and detect Shorts
+   */
+  private async extractYouTubeDuration(url: string): Promise<{ durationSeconds: number | null; isShort: boolean }> {
+    const videoId = extractYouTubeVideoId(url)
+    if (!videoId) {
+      return { durationSeconds: null, isShort: false }
+    }
+
+    try {
+      const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
+      const html = await this.fetchText(watchUrl)
+
+      if (!html) {
+        return { durationSeconds: null, isShort: false }
+      }
+
+      // Try to extract duration from ytInitialPlayerResponse
+      const playerResponseMatch = html.match(/var ytInitialPlayerResponse = ({.+?});/)
+      if (playerResponseMatch) {
+        try {
+          const playerData = JSON.parse(playerResponseMatch[1])
+          const lengthSeconds = playerData?.videoDetails?.lengthSeconds
+          if (lengthSeconds) {
+            const duration = parseInt(lengthSeconds, 10)
+            return {
+              durationSeconds: duration,
+              isShort: duration < SHORTS_THRESHOLD_SECONDS,
+            }
+          }
+        } catch {
+          // Fall through to other methods
+        }
+      }
+
+      // Try alternative pattern for ytInitialPlayerResponse
+      const altMatch = html.match(/"ytInitialPlayerResponse":({.+?}),"ytInitialData"/)
+      if (altMatch) {
+        try {
+          const playerData = JSON.parse(altMatch[1])
+          const lengthSeconds = playerData?.videoDetails?.lengthSeconds
+          if (lengthSeconds) {
+            const duration = parseInt(lengthSeconds, 10)
+            return {
+              durationSeconds: duration,
+              isShort: duration < SHORTS_THRESHOLD_SECONDS,
+            }
+          }
+        } catch {
+          // Fall through
+        }
+      }
+
+      // Check if it's a Shorts URL
+      if (url.includes('/shorts/')) {
+        return { durationSeconds: null, isShort: true }
+      }
+
+      return { durationSeconds: null, isShort: false }
+    } catch {
+      return { durationSeconds: null, isShort: false }
+    }
+  }
+
+  /**
    * Generate search queries for finding resources
    */
   private generateSearchQueries(
@@ -191,17 +440,24 @@ class ResourceCuratorAgent {
     const keyTopicChunk = lesson.keyTopics.slice(0, 2).join(' ')
     const language = policy.contentLanguage
 
+    // Negative keywords to exclude low-quality content
+    const negativeKeywords = '-shorts -tiktok -reels -viral -meme -funny -prank'
+
     // Generate diverse queries for better coverage
-    return [
-      `${topic} ${lesson.title} tutorial`,
-      `${topic} ${moduleTitle} ${lesson.title}`,
-      `${topic} ${objectiveChunk} explained`,
-      `${topic} ${keyTopicChunk} guide`,
-      `"${lesson.title}" ${topic} youtube`,
-      `${topic} ${lesson.title} ${language} course`,
-      `learn ${topic} ${keyTopicChunk}`,
-      `${topic} ${lesson.title} for beginners`,
+    const queries = [
+      `${topic} ${lesson.title} full course tutorial ${negativeKeywords}`,
+      `${topic} ${moduleTitle} ${lesson.title} lecture ${negativeKeywords}`,
+      `${topic} ${objectiveChunk} explained ${negativeKeywords}`,
+      `${topic} ${keyTopicChunk} complete guide ${negativeKeywords}`,
+      `"${lesson.title}" ${topic} youtube playlist ${negativeKeywords}`,
+      `${topic} ${lesson.title} ${language} crash course ${negativeKeywords}`,
+      `learn ${topic} ${keyTopicChunk} step by step ${negativeKeywords}`,
+      `${topic} ${lesson.title} for beginners tutorial ${negativeKeywords}`,
+      `${topic} ${lesson.title} advanced tutorial ${negativeKeywords}`,
+      `${topic} ${moduleTitle} complete series ${negativeKeywords}`,
     ]
+
+    return queries
       .map((q) => q.trim().replace(/\s+/g, ' '))
       .filter((q, i, arr) => q.length > 0 && arr.indexOf(q) === i)
       .slice(0, 8)
@@ -329,8 +585,11 @@ class ResourceCuratorAgent {
   }
 
   private async searchYouTube(query: string): Promise<SearchHit[]> {
-    const endpoint = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' educational')}`
-    
+    // Add negative keywords to exclude Shorts and low-quality content
+    const negativeKeywords = '-shorts -tiktok -reels -viral -meme -funny -prank'
+    const fullQuery = `${query} ${negativeKeywords}`
+    const endpoint = `https://www.youtube.com/results?search_query=${encodeURIComponent(fullQuery)}`
+
     try {
       const html = await this.fetchText(endpoint)
       if (!html) return []
@@ -395,7 +654,20 @@ class ResourceCuratorAgent {
               : 0
             : 0
 
-      const qualityScore = clamp(0.45 + domainBoost + overlap * 0.3 + preferenceBoost, 0, 1)
+      // Boost for tutorial/course/lecture keywords in title
+      const titleLower = hit.title.toLowerCase()
+      const tutorialBoost =
+        titleLower.includes('tutorial') ||
+        titleLower.includes('course') ||
+        titleLower.includes('lecture') ||
+        titleLower.includes('complete') ||
+        titleLower.includes('full') ||
+        titleLower.includes('series') ||
+        titleLower.includes('playlist')
+          ? 0.12
+          : 0
+
+      const qualityScore = clamp(0.45 + domainBoost + overlap * 0.3 + preferenceBoost + tutorialBoost, 0, 1)
 
       const title = hit.title && hit.title.trim().length > 0 ? hit.title.trim() : parsed.hostname
       const description = hit.snippet && hit.snippet.trim().length > 0
@@ -431,7 +703,7 @@ class ResourceCuratorAgent {
       .slice(0, 20)
   }
 
-  private enforceDiversity(resources: ResourceCandidate[]): ResourceCandidate[] {
+  private enforceDiversity(resources: ResourceCandidate[], targetCount: number = DEFAULT_RESOURCE_COUNT): ResourceCandidate[] {
     if (resources.length <= 2) return resources
 
     const sorted = [...resources].sort((a, b) => {
@@ -452,7 +724,7 @@ class ResourceCuratorAgent {
     if (topBook && !selected.some((r) => r.url === topBook.url)) selected.push(topBook)
 
     for (const resource of sorted) {
-      if (selected.length >= 5) break
+      if (selected.length >= targetCount) break
       if (selected.some((r) => r.url === resource.url)) continue
       selected.push(resource)
     }

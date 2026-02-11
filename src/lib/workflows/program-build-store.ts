@@ -162,7 +162,7 @@ export async function getLatestBuildJobByProgram(programId: string) {
 }
 
 export async function resetBuildJobForRetry(jobId: string): Promise<
-  | { ok: true; retryCount: number }
+  | { ok: true; retryCount: number; resumeFrom?: string }
   | { ok: false; reason: 'not_found' | 'invalid_status' | 'max_retries_reached' }
 > {
   const job = await prisma.programBuildJob.findUnique({ where: { id: jobId } })
@@ -178,6 +178,9 @@ export async function resetBuildJobForRetry(jobId: string): Promise<
     return { ok: false, reason: 'max_retries_reached' }
   }
 
+  // Determine resume point from checkpoint data
+  const resumeFrom = job.lastCompletedStepKey ?? 'plan'
+
   const updated = await prisma.programBuildJob.update({
     where: { id: jobId },
     data: {
@@ -191,10 +194,12 @@ export async function resetBuildJobForRetry(jobId: string): Promise<
       retryCount: {
         increment: 1,
       },
+      // Preserve checkpoint fields for resumable retry
+      // lastCompletedModuleIndex, lastCompletedLessonIndex, lastCompletedStepKey remain unchanged
     },
   })
 
-  return { ok: true, retryCount: updated.retryCount }
+  return { ok: true, retryCount: updated.retryCount, resumeFrom }
 }
 
 export async function updateBuildJobState(jobId: string, patch: {
@@ -342,20 +347,36 @@ export async function getProgramBuildView(jobId: string) {
   }
 }
 
-export async function persistProgramBlueprint(jobId: string, blueprint: ProgramBlueprint): Promise<void> {
+export async function persistProgramBlueprint(jobId: string, blueprint: ProgramBlueprint, isRetry: boolean = false): Promise<void> {
   const job = await getBuildJobOrThrow(jobId)
 
   await prisma.$transaction(async (tx) => {
-    await tx.module.deleteMany({ where: { programId: job.programId } })
+    // Only delete modules if this is NOT a retry (fresh build)
+    // On retry, we preserve existing modules and only update if needed
+    if (!isRetry) {
+      await tx.module.deleteMany({ where: { programId: job.programId } })
+    }
 
     for (const module of blueprint.modules) {
-      await tx.module.create({
-        data: {
+      // Use upsert to handle both fresh build and retry scenarios
+      await tx.module.upsert({
+        where: {
+          programId_index: {
+            programId: job.programId,
+            index: module.index,
+          },
+        },
+        create: {
           programId: job.programId,
           index: module.index,
           title: module.title,
           outcomesJson: JSON.stringify(module.outcomes),
           buildStatus: 'PENDING',
+        },
+        update: {
+          title: module.title,
+          outcomesJson: JSON.stringify(module.outcomes),
+          // Don't reset buildStatus on retry - preserve progress
         },
       })
     }
@@ -364,13 +385,63 @@ export async function persistProgramBlueprint(jobId: string, blueprint: ProgramB
       where: { id: jobId },
       data: {
         totalModules: blueprint.modules.length,
-        completedModules: 0,
+        completedModules: isRetry ? job.completedModules : 0,
         totalLessons: blueprint.modules.reduce((acc, module) => acc + module.lessonsCount, 0),
-        completedLessons: 0,
+        completedLessons: isRetry ? job.completedLessons : 0,
         planJson: JSON.stringify(blueprint),
+        // Set initial checkpoint for plan phase
+        lastCompletedStepKey: 'plan',
       },
     })
   })
+}
+
+/**
+ * Update checkpoint data for resumable builds
+ */
+export async function updateBuildCheckpoint(jobId: string, checkpoint: {
+  moduleIndex?: number
+  lessonIndex?: number
+  stepKey: string
+  data?: Record<string, unknown>
+}): Promise<void> {
+  const data: Record<string, unknown> = {
+    lastCompletedStepKey: checkpoint.stepKey,
+  }
+
+  if (checkpoint.moduleIndex !== undefined) {
+    data.lastCompletedModuleIndex = checkpoint.moduleIndex
+  }
+  if (checkpoint.lessonIndex !== undefined) {
+    data.lastCompletedLessonIndex = checkpoint.lessonIndex
+  }
+  if (checkpoint.data) {
+    data.checkpointDataJson = JSON.stringify(checkpoint.data)
+  }
+
+  await prisma.programBuildJob.update({
+    where: { id: jobId },
+    data,
+  })
+}
+
+/**
+ * Get checkpoint data for a build job
+ */
+export async function getBuildCheckpoint(jobId: string): Promise<{
+  moduleIndex: number | null
+  lessonIndex: number | null
+  stepKey: string | null
+  data: Record<string, unknown>
+}> {
+  const job = await getBuildJobOrThrow(jobId)
+
+  return {
+    moduleIndex: job.lastCompletedModuleIndex ?? null,
+    lessonIndex: job.lastCompletedLessonIndex ?? null,
+    stepKey: job.lastCompletedStepKey ?? null,
+    data: job.checkpointDataJson ? JSON.parse(job.checkpointDataJson) : {},
+  }
 }
 
 function safeParseJson(value: string | null | undefined): any {

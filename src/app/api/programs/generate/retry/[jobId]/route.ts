@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import {
   appendBuildEvent,
   getBuildJobOrThrow,
+  getBuildCheckpoint,
   resetBuildJobForRetry,
 } from '@/lib/workflows/program-build-store'
 import { enqueueProgramBuildJob } from '@/lib/workflows/program-build-runner'
@@ -10,6 +11,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ jobId: st
   try {
     const { jobId } = await params
     const job = await getBuildJobOrThrow(jobId)
+
+    // Get current checkpoint before resetting
+    const checkpoint = await getBuildCheckpoint(jobId)
 
     const retried = await resetBuildJobForRetry(jobId)
 
@@ -36,10 +40,12 @@ export async function POST(_: Request, { params }: { params: Promise<{ jobId: st
       type: 'job.retry.queued',
       step: 'Queue',
       status: 'PENDING',
-      message: `Retry queued (attempt ${retried.retryCount}/${job.maxRetries})`,
+      message: `Retry queued (attempt ${retried.retryCount}/${job.maxRetries}) - will resume from: ${retried.resumeFrom || 'start'}`,
       payload: {
         retryCount: retried.retryCount,
         maxRetries: job.maxRetries,
+        resumeFrom: retried.resumeFrom,
+        checkpoint,
       },
     })
 
@@ -52,6 +58,8 @@ export async function POST(_: Request, { params }: { params: Promise<{ jobId: st
       status: 'QUEUED',
       retryCount: retried.retryCount,
       maxRetries: job.maxRetries,
+      resumeFrom: retried.resumeFrom,
+      checkpoint,
     })
   } catch (error) {
     return NextResponse.json(

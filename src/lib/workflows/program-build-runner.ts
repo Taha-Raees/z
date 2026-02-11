@@ -23,10 +23,17 @@ import {
   appendBuildEvent,
   claimBuildJob,
   getBuildJobOrThrow,
+  getBuildCheckpoint,
   markBuildJobFailedIfStale,
   persistProgramBlueprint,
+  updateBuildCheckpoint,
   updateBuildJobState,
 } from './program-build-store'
+import {
+  upsertProgramContext,
+  upsertLessonContext,
+  buildContextPack,
+} from '../context-store'
 
 const inMemoryRunningJobs = new Set<string>()
 
@@ -84,6 +91,10 @@ export async function runProgramBuildJob(jobId: string): Promise<void> {
     return
   }
 
+  // Get checkpoint data for resumable builds
+  const checkpoint = await getBuildCheckpoint(jobId)
+  const isRetry = job.retryCount > 0
+
   let failedModules = 0
   const languagePolicy = resolveLanguagePolicy({
     contentLanguage: profile.contentLanguage,
@@ -96,9 +107,13 @@ export async function runProgramBuildJob(jobId: string): Promise<void> {
       type: 'job.started',
       step: 'Initialize',
       status: 'IN_PROGRESS',
-      message: 'Program build worker started',
+      message: isRetry
+        ? `Program build worker started (retry #${job.retryCount}, resuming from: ${checkpoint.stepKey || 'start'})`
+        : 'Program build worker started',
       payload: {
         programId: job.programId,
+        isRetry,
+        checkpoint,
       },
     })
 
@@ -111,28 +126,62 @@ export async function runProgramBuildJob(jobId: string): Promise<void> {
       error: null,
     })
 
-    const curriculumAgent = getCurriculumArchitectAgent()
-    const rawBlueprint = await curriculumAgent.generateProgram(profile, languagePolicy)
-    const repairedBlueprint = await ensureBlueprintLanguagePolicy(profile, rawBlueprint, languagePolicy)
-    const blueprint = normalizeBlueprint(repairedBlueprint)
+    // Skip planning phase if already completed (on retry)
+    let blueprint: ProgramBlueprint
+    if (checkpoint.stepKey === 'plan' || !job.planJson) {
+      const curriculumAgent = getCurriculumArchitectAgent()
+      const rawBlueprint = await curriculumAgent.generateProgram(profile, languagePolicy)
+      const repairedBlueprint = await ensureBlueprintLanguagePolicy(profile, rawBlueprint, languagePolicy)
+      blueprint = normalizeBlueprint(repairedBlueprint)
 
-    await persistProgramBlueprint(jobId, blueprint)
-    await appendBuildEvent(jobId, {
-      type: 'phase.plan.completed',
-      step: 'Plan',
-      status: 'COMPLETED',
-      message: 'Program blueprint planned and persisted',
-      payload: {
-        moduleCount: blueprint.modules.length,
-        lessonCount: blueprint.modules.reduce((acc, module) => acc + module.lessonsCount, 0),
-      },
-    })
+      await persistProgramBlueprint(jobId, blueprint, isRetry)
 
-    for (const moduleBlueprint of blueprint.modules) {
-      const moduleResult = await processModule(jobId, profile, moduleBlueprint, languagePolicy)
+      // Create program context for RAG/context awareness
+      await upsertProgramContext(job.programId, profile, blueprint)
+
+      await appendBuildEvent(jobId, {
+        type: 'phase.plan.completed',
+        step: 'Plan',
+        status: 'COMPLETED',
+        message: 'Program blueprint planned and persisted',
+        payload: {
+          moduleCount: blueprint.modules.length,
+          lessonCount: blueprint.modules.reduce((acc, module) => acc + module.lessonsCount, 0),
+        },
+      })
+    } else {
+      // Load existing blueprint from job
+      blueprint = safeParseJson<ProgramBlueprint>(job.planJson) || {
+        title: profile.topic,
+        description: `Learning path for ${profile.topic}`,
+        modules: [],
+        totalLessons: 0,
+        totalHours: 0,
+        estimatedWeeks: 0,
+        milestones: [],
+      }
+      await appendBuildEvent(jobId, {
+        type: 'phase.plan.skipped',
+        step: 'Plan',
+        status: 'SKIPPED',
+        message: 'Using existing blueprint from previous run',
+      })
+    }
+
+    // Process modules, starting from checkpoint if available
+    const startModuleIndex = checkpoint.moduleIndex !== null ? checkpoint.moduleIndex + 1 : 0
+    for (let moduleIndex = startModuleIndex; moduleIndex < blueprint.modules.length; moduleIndex++) {
+      const moduleBlueprint = blueprint.modules[moduleIndex]
+      const moduleResult = await processModule(jobId, profile, moduleBlueprint, languagePolicy, moduleIndex)
       if (!moduleResult.success) {
         failedModules += 1
       }
+
+      // Update checkpoint after each module
+      await updateBuildCheckpoint(jobId, {
+        moduleIndex,
+        stepKey: `module_${moduleIndex}`,
+      })
 
       await updateBuildJobState(jobId, {
         completedModules: await prisma.module.count({
@@ -263,9 +312,12 @@ async function processModule(
   jobId: string,
   profile: StudentOnboardingProfile,
   moduleBlueprint: ModuleBlueprint,
-  languagePolicy: ReturnType<typeof resolveLanguagePolicy>
+  languagePolicy: ReturnType<typeof resolveLanguagePolicy>,
+  moduleIndex: number
 ): Promise<{ success: boolean }> {
   const job = await getBuildJobOrThrow(jobId)
+  const checkpoint = await getBuildCheckpoint(jobId)
+
   const dbModule = await prisma.module.findFirst({
     where: {
       programId: job.programId,
@@ -334,16 +386,30 @@ async function processModule(
       languagePolicy
     )
 
-    for (const lessonPlan of plannedLessons) {
+    // Determine starting lesson index from checkpoint
+    // Only skip lessons if we're in the same module as the checkpoint
+    const startLessonIndex = (checkpoint.moduleIndex === moduleIndex && checkpoint.lessonIndex !== null)
+      ? checkpoint.lessonIndex + 1
+      : 0
+
+    for (let lessonIndex = startLessonIndex; lessonIndex < plannedLessons.length; lessonIndex++) {
+      const lessonPlan = plannedLessons[lessonIndex]
       await processLesson(
         jobId,
         profile,
         moduleBlueprint,
         dbModule.id,
-        lessonPlan.index,
+        lessonIndex,
         lessonPlan.lesson,
         languagePolicy
       )
+
+      // Update checkpoint after each lesson
+      await updateBuildCheckpoint(jobId, {
+        moduleIndex,
+        lessonIndex,
+        stepKey: `module_${moduleIndex}_lesson_${lessonIndex}`,
+      })
     }
 
     await ensureModuleQuiz(jobId, moduleBlueprint, dbModule.id, languagePolicy)
@@ -764,6 +830,9 @@ async function processLesson(
       summary: refinedNotes.summary,
     },
   })
+
+  // Create lesson context for RAG/context awareness
+  await upsertLessonContext(lesson.id, lessonBlueprint, refinedNotes.summary)
 }
 
 async function ensureModuleQuiz(
@@ -1347,7 +1416,7 @@ function addDays(date: Date, days: number): Date {
   return d
 }
 
-function safeParseJson<T>(input: string): T | null {
+export function safeParseJson<T>(input: string): T | null {
   try {
     return JSON.parse(input) as T
   } catch {

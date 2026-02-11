@@ -156,6 +156,7 @@ model Program {
   schedules     Schedule[]
   progress      Progress[]
   buildJobs     ProgramBuildJob[]
+  context       ProgramContext?
 
   @@map("programs")
 }
@@ -196,6 +197,7 @@ model Lesson {
   notes            LessonNote?
   exerciseSets     ExerciseSet[]
   progress         Progress[]
+  context          LessonContext?
 
   @@unique([moduleId, index])
   @@map("lessons")
@@ -515,27 +517,32 @@ model JobStep {
 // ============================================
 
 model ProgramBuildJob {
-  id               String         @id @default(cuid())
-  userId           String
-  programId        String
-  status           BuildJobStatus @default(QUEUED)
-  currentPhase     String?
-  currentItem      String?
-  totalModules     Int            @default(0)
-  completedModules Int            @default(0)
-  totalLessons     Int            @default(0)
-  completedLessons Int            @default(0)
-  retryCount       Int            @default(0)
-  maxRetries       Int            @default(2)
-  lastEventIndex   Int            @default(0)
-  inputProfileJson String         @default("{}")
-  planJson         String?
-  error            String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  startedAt        DateTime?
-  finishedAt       DateTime?
-  lastHeartbeatAt  DateTime?
+  id                        String         @id @default(cuid())
+  userId                    String
+  programId                 String
+  status                    BuildJobStatus @default(QUEUED)
+  currentPhase              String?
+  currentItem               String?
+  totalModules              Int            @default(0)
+  completedModules          Int            @default(0)
+  totalLessons              Int            @default(0)
+  completedLessons          Int            @default(0)
+  retryCount                Int            @default(0)
+  maxRetries                Int            @default(2)
+  lastEventIndex            Int            @default(0)
+  inputProfileJson          String         @default("{}")
+  planJson                  String?
+  error                     String?
+  // Checkpoint fields for resumable builds
+  lastCompletedModuleIndex  Int?           // Last module index that was fully completed
+  lastCompletedLessonIndex  Int?           // Last lesson index within the module that was fully completed
+  lastCompletedStepKey      String?        // Last step key that was completed (e.g., 'plan', 'module_0', 'lesson_0_1')
+  checkpointDataJson        String?        // Additional checkpoint data for recovery
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  startedAt                 DateTime?
+  finishedAt                DateTime?
+  lastHeartbeatAt           DateTime?
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
@@ -592,4 +599,40 @@ enum ContentBuildStatus {
   IN_PROGRESS
   COMPLETED
   FAILED
+}
+
+// ============================================
+// Context Store (v0.2 - for RAG/context awareness)
+// ============================================
+
+model ProgramContext {
+  id                String   @id @default(cuid())
+  programId         String   @unique
+  profileSummary    String   @default("")
+  planSummary       String   @default("")
+  moduleOutlinesJson String  @default("[]")
+  constraintsJson   String   @default("{}")
+  languagePolicyJson String @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  program           Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@map("program_contexts")
+}
+
+model LessonContext {
+  id                String   @id @default(cuid())
+  lessonId          String   @unique
+  objectivesJson    String   @default("[]")
+  notesSummary      String   @default("")
+  keyTopicsJson     String   @default("[]")
+  difficultyLevel   String?
+  expectedMinutes   Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  lesson            Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@map("lesson_contexts")
 }
