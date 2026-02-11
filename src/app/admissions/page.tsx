@@ -2,6 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { ArrowRight, Bot, Circle, Loader2, Sparkles, UserRound } from 'lucide-react'
+import {
+  AppShell,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  PageHeader,
+  Textarea,
+} from '@/components/ui'
+import { productNav } from '@/lib/app-navigation'
 
 type OnboardingProfile = {
   topic: string
@@ -169,6 +184,14 @@ export default function AdmissionsPage() {
     Boolean(generationError) ||
     Boolean(partialProgram) ||
     Boolean(buildStatus)
+
+  const shellStatus = generationError || buildStatus?.status === 'FAILED'
+    ? 'error'
+    : isGeneratingProgram || buildStatus?.isWorking
+      ? 'running'
+      : !sessionId || !isComplete
+        ? 'needs-input'
+        : 'ready'
 
   const clearPersistedBuild = useCallback(() => {
     try {
@@ -762,230 +785,270 @@ export default function AdmissionsPage() {
   const renderBuildPanel = () => {
     if (!shouldShowBuildPanel) return null
 
+    const isRunning = isGeneratingProgram || buildStatus?.isWorking
+    const statusLabel = isRestoringBuild
+      ? 'Reconnecting'
+      : buildStatus?.status
+        ? `Job ${buildStatus.status}`
+        : isRunning
+          ? 'Running'
+          : 'Idle'
+
+    const statusVariant: 'muted' | 'success' | 'warn' | 'danger' =
+      buildStatus?.status === 'FAILED'
+        ? 'danger'
+        : buildStatus?.status === 'COMPLETED'
+          ? 'success'
+          : isRunning
+            ? 'warn'
+            : 'muted'
+
     return (
-      <div className="mt-8 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <Card className="mt-6">
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">Program Build Pipeline</h3>
-            <p className="text-xs text-gray-600">Background iterative generation with reconnect-safe streaming</p>
+            <CardTitle className="text-base">Program build pipeline</CardTitle>
+            <CardDescription>Background iterative generation with reconnect-safe streaming.</CardDescription>
           </div>
+
           <div className="flex items-center gap-2 text-xs">
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${
-                isGeneratingProgram || buildStatus?.isWorking
-                  ? 'animate-pulse bg-blue-500'
+            <Circle
+              className={`h-3.5 w-3.5 ${
+                isRunning
+                  ? 'animate-pulse text-blue-500'
                   : buildStatus?.status === 'COMPLETED'
-                    ? 'bg-green-500'
+                    ? 'text-green-500'
                     : buildStatus?.status === 'FAILED'
-                      ? 'bg-red-500'
-                      : 'bg-gray-400'
+                      ? 'text-red-500'
+                      : 'text-muted-foreground'
               }`}
+              fill="currentColor"
             />
-            <span className="font-medium text-gray-700">
-              {isRestoringBuild
-                ? 'Reconnecting'
-                : buildStatus?.status
-                  ? `Job ${buildStatus.status}`
-                  : isGeneratingProgram
-                    ? 'Running'
-                    : 'Idle'}
-            </span>
-            {buildJobId && (
-              <span className="rounded bg-gray-100 px-2 py-0.5 font-mono text-[11px] text-gray-600">
+            <Badge variant={statusVariant}>{statusLabel}</Badge>
+            {buildJobId ? (
+              <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
                 {buildJobId.slice(-8)}
               </span>
-            )}
+            ) : null}
           </div>
-        </div>
+        </CardHeader>
 
-        {buildStatus && (
-          <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-700">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">Phase:</span>
-                <span className="rounded bg-white px-2 py-0.5">
-                  {buildStatus.currentPhase || 'queued'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">Current item:</span>
-                <span className="max-w-[220px] truncate rounded bg-white px-2 py-0.5">
-                  {buildStatus.currentItem || '—'}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3">
-              <div className="mb-1 flex justify-between text-[11px] text-gray-600">
-                <span>
-                  Lessons {buildStatus.completedLessons}/{Math.max(buildStatus.totalLessons, 0)}
-                </span>
-                <span>{Math.round(buildProgressPercent)}%</span>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-gray-200">
-                <div
-                  className="h-1.5 rounded-full bg-primary transition-all"
-                  style={{ width: `${Math.round(buildProgressPercent)}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span className="rounded bg-white px-2 py-1 text-gray-700">
-                Modules: {buildStatus.completedModules}/{buildStatus.totalModules}
-              </span>
-              <span className="rounded bg-white px-2 py-1 text-gray-700">Retries: {buildStatus.retryCount}/{buildStatus.maxRetries}</span>
-              {buildStatus.programId && (
-                <Link
-                  href={`/programs/${buildStatus.programId}`}
-                  className="rounded bg-primary px-2 py-1 font-semibold text-white"
-                >
-                  Open Program
-                </Link>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600">Live Event Log</h4>
-            <div className="mt-2 max-h-56 space-y-2 overflow-auto rounded border border-gray-200 bg-white p-2">
-              {generationLogs.length === 0 && (
-                <p className="text-xs text-gray-500">Waiting for background events...</p>
-              )}
-
-              {generationLogs.map((log, index) => (
-                <div key={`${log.index ?? index}-${log.step}-${index}`} className="flex items-start gap-2 text-xs">
-                  <span
-                    className={`mt-1 inline-block h-2 w-2 rounded-full ${
-                      log.status === 'completed'
-                        ? 'bg-green-500'
-                        : log.status === 'failed'
-                          ? 'bg-red-500'
-                          : log.status === 'in_progress'
-                            ? 'animate-pulse bg-blue-500'
-                            : 'bg-gray-400'
-                    }`}
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-gray-900">{log.step}</p>
-                    {log.message && <p className="text-gray-600">{log.message}</p>}
-                    {log.timestamp && (
-                      <p className="text-[10px] text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-              Partial Program Availability
-            </h4>
-            {partialProgram ? (
-              <>
-                <p className="mt-2 text-xs text-gray-600">
-                  Ready lessons: <span className="font-semibold text-gray-900">{partialReadyLessons}</span>
-                </p>
-                <div className="mt-2 max-h-56 space-y-2 overflow-auto">
-                  {partialProgram.modules.map((module) => (
-                    <div key={module.id} className="rounded border border-gray-200 bg-white p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-gray-900">
-                          Module {module.index + 1}: {module.title}
-                        </p>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            STATUS_STYLE[module.buildStatus] || STATUS_STYLE.PENDING
-                          }`}
-                        >
-                          {module.buildStatus.replace('_', ' ')}
-                        </span>
-                      </div>
-
-                      <div className="mt-2 space-y-1">
-                        {module.lessons.slice(0, 5).map((lesson) => (
-                          <div key={lesson.id} className="flex items-center justify-between gap-2 rounded bg-gray-50 px-2 py-1">
-                            <p className="truncate text-[11px] text-gray-700">
-                              L{lesson.index + 1}: {lesson.title}
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                                  STATUS_STYLE[lesson.buildStatus] || STATUS_STYLE.PENDING
-                                }`}
-                              >
-                                {lesson.buildStatus.replace('_', ' ')}
-                              </span>
-                              {lesson.buildStatus === 'COMPLETED' && (
-                                <Link
-                                  href={`/lessons/${lesson.id}`}
-                                  className="text-[10px] font-semibold text-primary hover:underline"
-                                >
-                                  Open
-                                </Link>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="mt-2 text-xs text-gray-500">
-                Generated modules and lessons will appear here immediately as each chunk is completed.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {generationError && (
-          <p className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs font-medium text-red-700">
-            {generationError}
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Background agents continue working while you can proceed with admissions or open generated lessons.
           </p>
-        )}
 
-        {buildStatus?.status === 'FAILED' &&
+          {buildStatus ? (
+            <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">Phase:</span>
+                  <span className="rounded bg-background px-2 py-0.5 text-foreground">
+                    {buildStatus.currentPhase || 'queued'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">Current item:</span>
+                  <span className="max-w-[220px] truncate rounded bg-background px-2 py-0.5 text-foreground">
+                    {buildStatus.currentItem || '—'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                  <span>
+                    Lessons {buildStatus.completedLessons}/{Math.max(buildStatus.totalLessons, 0)}
+                  </span>
+                  <span>{Math.round(buildProgressPercent)}%</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted">
+                  <div
+                    className="h-1.5 rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.round(buildProgressPercent)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded bg-background px-2 py-1 text-foreground">
+                  Modules: {buildStatus.completedModules}/{buildStatus.totalModules}
+                </span>
+                <span className="rounded bg-background px-2 py-1 text-foreground">
+                  Retries: {buildStatus.retryCount}/{buildStatus.maxRetries}
+                </span>
+                {buildStatus.programId ? (
+                  <Link
+                    href={`/programs/${buildStatus.programId}`}
+                    className="rounded bg-primary px-2 py-1 font-semibold text-primary-foreground"
+                  >
+                    Open Program
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Live event log
+              </h4>
+              <div className="mt-2 max-h-56 space-y-2 overflow-auto rounded border border-border/70 bg-background p-2">
+                {generationLogs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Waiting for background events...</p>
+                ) : null}
+
+                {generationLogs.map((log, index) => (
+                  <div key={`${log.index ?? index}-${log.step}-${index}`} className="flex items-start gap-2 text-xs">
+                    <span
+                      className={`mt-1 inline-block h-2 w-2 rounded-full ${
+                        log.status === 'completed'
+                          ? 'bg-green-500'
+                          : log.status === 'failed'
+                            ? 'bg-red-500'
+                            : log.status === 'in_progress'
+                              ? 'animate-pulse bg-blue-500'
+                              : 'bg-gray-400'
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-foreground">{log.step}</p>
+                      {log.message ? <p className="text-muted-foreground">{log.message}</p> : null}
+                      {log.timestamp ? (
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Partial program availability
+              </h4>
+              {partialProgram ? (
+                <>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Ready lessons: <span className="font-semibold text-foreground">{partialReadyLessons}</span>
+                  </p>
+                  <div className="mt-2 max-h-56 space-y-2 overflow-auto">
+                    {partialProgram.modules.map((module) => (
+                      <div key={module.id} className="rounded border border-border/70 bg-background p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-foreground">
+                            Module {module.index + 1}: {module.title}
+                          </p>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              STATUS_STYLE[module.buildStatus] || STATUS_STYLE.PENDING
+                            }`}
+                          >
+                            {module.buildStatus.replace('_', ' ')}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 space-y-1">
+                          {module.lessons.slice(0, 5).map((lesson) => (
+                            <div
+                              key={lesson.id}
+                              className="flex items-center justify-between gap-2 rounded bg-muted/40 px-2 py-1"
+                            >
+                              <p className="truncate text-[11px] text-foreground/90">
+                                L{lesson.index + 1}: {lesson.title}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                    STATUS_STYLE[lesson.buildStatus] || STATUS_STYLE.PENDING
+                                  }`}
+                                >
+                                  {lesson.buildStatus.replace('_', ' ')}
+                                </span>
+                                {lesson.buildStatus === 'COMPLETED' ? (
+                                  <Link
+                                    href={`/lessons/${lesson.id}`}
+                                    className="text-[10px] font-semibold text-primary hover:underline"
+                                  >
+                                    Open
+                                  </Link>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Modules and lessons will appear immediately as each chunk completes.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {generationError ? (
+            <p className="rounded border border-red-200 bg-red-50 p-2 text-xs font-medium text-red-700">
+              {generationError}
+            </p>
+          ) : null}
+
+          {buildStatus?.status === 'FAILED' &&
           buildJobId &&
-          buildStatus.retryCount < buildStatus.maxRetries && (
-            <button
-              onClick={handleRetryBuild}
-              disabled={isGeneratingProgram}
-              className="mt-3 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
-            >
+          buildStatus.retryCount < buildStatus.maxRetries ? (
+            <Button onClick={handleRetryBuild} disabled={isGeneratingProgram} size="sm">
               Retry Build ({buildStatus.retryCount}/{buildStatus.maxRetries})
-            </button>
-          )}
-      </div>
+            </Button>
+          ) : null}
+        </CardContent>
+      </Card>
     )
   }
 
   if (isComplete && profile) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12">
-        <div className="mx-auto max-w-4xl px-4">
-          <div className="rounded-xl bg-white p-8 shadow-lg">
-            <h1 className="mb-6 text-3xl font-bold text-gray-900">Admissions Summary</h1>
+      <AppShell nav={productNav} currentPath="/admissions" status={shellStatus}>
+        <div className="mx-auto max-w-4xl space-y-6">
+          <PageHeader
+            title="Admissions summary"
+            subtitle="Admissions turns your goals into a runnable program plan."
+            actions={<Badge variant="success">Profile ready</Badge>}
+          />
 
-            <div className="mb-8 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserRound className="h-4 w-4" />
+                Profile snapshot
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
               <SummaryItem label="Topic" value={profile.topic} />
               <SummaryItem label="Current Level" value={profile.currentLevel} />
               <SummaryItem label="Goal Level" value={profile.goalLevel} />
               <SummaryItem label="Target Date" value={profile.targetDate} />
               <SummaryItem label="Hours per Day" value={`${profile.hoursPerDay} hours`} />
               <SummaryItem label="Pace" value={profile.pacePreference} />
-            </div>
+            </CardContent>
+          </Card>
 
-            <div className="mb-8 rounded-lg bg-blue-50 p-6">
-              <h2 className="mb-4 text-xl font-semibold text-gray-900">Proposed Program</h2>
-              <p className="mb-4 text-gray-600">
+          <Card className="subtle-gradient">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />
+                Proposed program pipeline
+              </CardTitle>
+              <CardDescription>
                 Your program will be generated as a background workflow with live progress, partial module availability, and reconnect-safe state.
-              </p>
-              <ul className="space-y-2 text-gray-700">
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-start">
                   <span className="mr-2 text-green-500">✓</span>
                   <span>Iterative agent pipeline (plan → gather → draft → review → persist)</span>
@@ -1003,137 +1066,152 @@ export default function AdmissionsPage() {
                   <span>Retry-safe recovery for partial failures</span>
                 </li>
               </ul>
-            </div>
+            </CardContent>
+          </Card>
 
-            <div className="flex gap-4">
-              <button
-                onClick={handleGenerateProgram}
-                disabled={isLoading || isGeneratingProgram}
-                className="flex-1 rounded-lg bg-primary px-6 py-3 font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
-              >
-                {isGeneratingProgram ? 'Generating Program…' : 'Generate My Program'}
-              </button>
-              <Link
-                href="/"
-                className="flex-1 rounded-lg bg-gray-100 px-6 py-3 text-center font-semibold text-gray-900 transition hover:bg-gray-200"
-              >
-                Start Over
-              </Link>
-            </div>
-
-            {renderBuildPanel()}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!sessionId) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12">
-        <div className="mx-auto max-w-2xl px-4">
-          <div className="rounded-xl bg-white p-8 text-center shadow-lg">
-            <div className="mb-6 text-6xl">🎓</div>
-            <h1 className="mb-4 text-3xl font-bold text-gray-900">Welcome to AI Education System</h1>
-            <p className="mb-8 text-xl text-gray-600">
-              Begin your learning journey with a personalized admissions interview.
-            </p>
-            <button
-              onClick={handleStart}
-              disabled={isLoading}
-              className="w-full rounded-lg bg-primary px-8 py-4 text-lg font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={handleGenerateProgram}
+              disabled={isLoading || isGeneratingProgram}
+              className="min-w-[220px]"
             >
-              {isLoading ? 'Starting...' : 'Start Admission Interview'}
-            </button>
-
-            {renderBuildPanel()}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12">
-      <div className="mx-auto max-w-3xl px-4">
-        <div className="rounded-xl bg-white p-8 shadow-lg">
-          <div className="mb-8">
-            <div className="mb-2 flex justify-between text-sm text-gray-600">
-              <span>Admissions Interview</span>
-              <span>Question {currentQuestion?.questionNumber || 1}</span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-gray-200">
-              <div
-                className="h-2 rounded-full bg-primary transition-all"
-                style={{ width: `${(currentQuestion?.progress || 0) * 100}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <h2 className="mb-4 text-2xl font-bold text-gray-900">{currentQuestion?.question}</h2>
-            {currentQuestion?.rationale && (
-              <p className="mb-6 rounded-lg bg-blue-50 p-4 text-gray-600">{currentQuestion.rationale}</p>
-            )}
-          </div>
-
-          <div className="mb-8">
-            {currentQuestion?.type === 'select' ? (
-              <div className="space-y-3">
-                {currentQuestion.options?.map((option, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setAnswer(option)}
-                    className={`w-full rounded-lg border-2 px-6 py-4 text-left transition ${
-                      answer === option
-                        ? 'border-primary bg-primary/10'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <textarea
-                value={answer}
-                onChange={(event) => setAnswer(event.target.value)}
-                placeholder="Type your answer here..."
-                className="w-full resize-none rounded-lg border border-gray-300 px-4 py-3 focus:border-transparent focus:ring-2 focus:ring-primary"
-                rows={4}
-              />
-            )}
-          </div>
-
-          <div className="flex gap-4">
-            <button
-              onClick={handleSubmitAnswer}
-              disabled={!answer.trim() || isLoading}
-              className="flex-1 rounded-lg bg-primary px-6 py-3 font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
-            >
-              {isLoading ? 'Submitting...' : 'Continue'}
-            </button>
+              {isGeneratingProgram ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+              {isGeneratingProgram ? 'Generating program…' : 'Generate my program'}
+            </Button>
             <Link
               href="/"
-              className="flex-1 rounded-lg bg-gray-100 px-6 py-3 text-center font-semibold text-gray-900 transition hover:bg-gray-200"
+              className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
             >
-              Cancel
+              Start over
             </Link>
           </div>
 
           {renderBuildPanel()}
         </div>
+      </AppShell>
+    )
+  }
+
+  if (!sessionId) {
+    return (
+      <AppShell nav={productNav} currentPath="/admissions" status={shellStatus}>
+        <div className="mx-auto max-w-2xl space-y-6">
+          <Card className="text-center">
+            <CardHeader className="items-center">
+              <div className="mb-1 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Bot className="h-6 w-6" />
+              </div>
+              <CardTitle>Start admissions</CardTitle>
+              <CardDescription>
+                Begin your learning journey with a calm interview. The system will convert goals into a complete program in the background.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={handleStart} disabled={isLoading} className="w-full">
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
+                {isLoading ? 'Starting...' : 'Start admission interview'}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {renderBuildPanel()}
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell nav={productNav} currentPath="/admissions" status={shellStatus}>
+      <div className="mx-auto max-w-3xl space-y-6">
+        <PageHeader
+          title="Admissions interview"
+          subtitle="One question at a time. Clear answers produce a better program."
+          actions={<Badge variant="muted">Question {currentQuestion?.questionNumber || 1}</Badge>}
+        />
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="mb-6">
+              <div className="mb-2 flex justify-between text-sm text-muted-foreground">
+                <span>Admissions interview</span>
+                <span>Question {currentQuestion?.questionNumber || 1}</span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-muted">
+                <div
+                  className="h-2 rounded-full bg-primary transition-all"
+                  style={{ width: `${(currentQuestion?.progress || 0) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <h2 className="mb-4 text-2xl font-semibold text-foreground">{currentQuestion?.question}</h2>
+              {currentQuestion?.rationale && (
+                <p className="mb-6 rounded-lg border border-border/70 bg-muted/30 p-4 text-sm text-muted-foreground">
+                  {currentQuestion.rationale}
+                </p>
+              )}
+            </div>
+
+            <div className="mb-8">
+              {currentQuestion?.type === 'select' ? (
+                <div className="space-y-3">
+                  {currentQuestion.options?.map((option, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setAnswer(option)}
+                      className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
+                        answer === option
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border hover:bg-muted/40'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <Textarea
+                  value={answer}
+                  onChange={(event) => setAnswer(event.target.value)}
+                  placeholder="Type your answer here..."
+                  className="w-full resize-none"
+                  rows={4}
+                />
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Button
+                onClick={handleSubmitAnswer}
+                disabled={!answer.trim() || isLoading}
+                className="min-w-[180px]"
+              >
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {isLoading ? 'Submitting...' : 'Continue'}
+                {!isLoading ? <ArrowRight className="ml-2 h-4 w-4" /> : null}
+              </Button>
+              <Link
+                href="/"
+                className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
+              >
+                Cancel
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        {renderBuildPanel()}
       </div>
-    </div>
+    </AppShell>
   )
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between border-b border-gray-200 py-3">
-      <span className="font-medium text-gray-600">{label}</span>
-      <span className="font-semibold text-gray-900">{value}</span>
+    <div className="flex justify-between border-b border-border/70 py-3">
+      <span className="font-medium text-muted-foreground">{label}</span>
+      <span className="font-semibold text-foreground">{value}</span>
     </div>
   )
 }
-

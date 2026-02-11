@@ -1,6 +1,18 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Geist, Geist_Mono, Inter } from 'next/font/google'
 import './globals.css'
+
+const geistSans = Geist({
+  subsets: ['latin'],
+  variable: '--font-geist-sans',
+  display: 'swap',
+})
+
+const geistMono = Geist_Mono({
+  subsets: ['latin'],
+  variable: '--font-geist-mono',
+  display: 'swap',
+})
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -9,9 +21,10 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Virtual School - AI Education Platform',
-  description: 'Personalized learning powered by AI agents. Create custom curricula, access curated resources, and track your progress.',
-  keywords: ['AI education', 'personalized learning', 'online courses', 'virtual school'],
+  title: 'AI School',
+  description:
+    'Admissions turns goals into a program. AI agents build lessons, practice, feedback, and review in the background.',
+  keywords: ['AI school', 'admissions', 'personalized learning', 'agentic education'],
 }
 
 export default function RootLayout({
@@ -20,8 +33,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={`${inter.className} antialiased`}>{children}</body>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${inter.variable}`}>
+      <body className="min-h-screen font-sans antialiased">{children}</body>
     </html>
   )
 }

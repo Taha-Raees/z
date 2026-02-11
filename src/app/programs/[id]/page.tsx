@@ -1,6 +1,9 @@
 import Link from 'next/link'
+import { ArrowRight, BookOpen, CalendarDays, FileWarning, Sparkles } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
 import { getLatestBuildJobByProgram } from '@/lib/workflows/program-build-store'
+import { AppShell, Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, PageHeader } from '@/components/ui'
+import { productNav } from '@/lib/app-navigation'
 
 type ProgramApiResponse = {
   success: boolean
@@ -167,18 +170,15 @@ export default async function ProgramDetailPage({ params }: { params: Promise<{ 
 
   if (!data) {
     return (
-      <div className="min-h-screen bg-gray-50 px-6 py-10">
-        <div className="mx-auto max-w-5xl rounded-xl border bg-white p-8">
-          <h1 className="text-2xl font-bold text-gray-900">Program not found</h1>
-          <p className="mt-2 text-gray-600">The requested program could not be loaded.</p>
-          <Link
-            href="/programs"
-            className="mt-6 inline-flex rounded-lg bg-primary px-4 py-2 font-medium text-white"
-          >
-            Back to Programs
-          </Link>
-        </div>
-      </div>
+      <AppShell nav={productNav} currentPath="/programs" status="error">
+        <EmptyState
+          icon={<FileWarning className="h-5 w-5" />}
+          title="Program not found"
+          description="The requested program could not be loaded."
+          ctaHref="/programs"
+          ctaLabel="Back to programs"
+        />
+      </AppShell>
     )
   }
 
@@ -191,213 +191,206 @@ export default async function ProgramDetailPage({ params }: { params: Promise<{ 
   )
 
   const livePct = lessonCount > 0 ? Math.round((completedLessons / lessonCount) * 100) : 0
+  const status = latestBuildJob?.status === 'FAILED' ? 'error' : latestBuildJob?.isWorking ? 'running' : 'ready'
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div>
-            <p className="text-sm text-gray-500">Program</p>
-            <h1 className="text-2xl font-bold text-gray-900">{program.topic}</h1>
-            <p className="text-sm text-gray-600">
-              {program.currentLevel} → {program.goal} • Target {shortDate(program.targetDate)}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/programs"
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
-            >
-              All Programs
-            </Link>
-            <Link
-              href={`/programs/${program.id}/calendar`}
-              className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white"
-            >
-              Calendar
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto grid max-w-6xl gap-6 px-6 py-6 lg:grid-cols-3">
+    <AppShell nav={productNav} currentPath="/programs" status={status}>
+      <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-6 lg:col-span-2">
-          <div className="rounded-xl border bg-white p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Build Progress</h2>
-              <span className="text-sm font-medium text-gray-600">{livePct}% lessons ready</span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-gray-200">
-              <div className="h-2 rounded-full bg-primary" style={{ width: `${livePct}%` }} />
-            </div>
+          <PageHeader
+            title={program.topic}
+            subtitle={`${program.currentLevel} → ${program.goal} • Target ${shortDate(program.targetDate)}`}
+            actions={
+              <>
+                <Link
+                  href="/programs"
+                  className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
+                >
+                  All programs
+                </Link>
+                <Link
+                  href={`/programs/${program.id}/calendar`}
+                  className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"
+                >
+                  <CalendarDays className="mr-2 h-4 w-4" />
+                  Calendar
+                </Link>
+              </>
+            }
+          />
 
-            <div className="mt-4 grid grid-cols-2 gap-4 text-sm text-gray-700">
-              <div className="rounded-lg border bg-gray-50 p-3">
-                <p className="text-xs uppercase tracking-wide text-gray-500">Modules</p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">{moduleCount}</p>
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between">
+              <CardTitle>Build progress</CardTitle>
+              <Badge variant="muted">{livePct}% lessons ready</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="h-2 w-full rounded-full bg-muted">
+                <div className="h-2 rounded-full bg-primary" style={{ width: `${livePct}%` }} />
               </div>
-              <div className="rounded-lg border bg-gray-50 p-3">
-                <p className="text-xs uppercase tracking-wide text-gray-500">Lessons Ready</p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {completedLessons}/{lessonCount}
-                </p>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">Modules</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{moduleCount}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">Lessons ready</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">
+                    {completedLessons}/{lessonCount}
+                  </p>
+                </div>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           <div className="space-y-4">
             {program.modules.map((module) => (
-              <article key={module.id} className="rounded-xl border bg-white p-5">
-                <div className="mb-3 flex items-start justify-between gap-4">
+              <Card key={module.id}>
+                <CardHeader className="flex flex-row items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500">
-                      Module {module.index + 1}
-                    </p>
-                    <h3 className="text-lg font-semibold text-gray-900">{module.title}</h3>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Module {module.index + 1}</p>
+                    <CardTitle className="mt-1">{module.title}</CardTitle>
                   </div>
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      STATUS_STYLE[module.buildStatus] || STATUS_STYLE.PENDING
-                    }`}
-                  >
+                  <Badge variant={module.buildStatus === 'COMPLETED' ? 'success' : module.buildStatus === 'FAILED' ? 'danger' : module.buildStatus === 'IN_PROGRESS' ? 'warn' : 'muted'}>
                     {module.buildStatus.replace('_', ' ')}
-                  </span>
-                </div>
+                  </Badge>
+                </CardHeader>
 
-                {module.outcomes.length > 0 && (
-                  <ul className="mb-4 list-disc space-y-1 pl-5 text-sm text-gray-700">
-                    {module.outcomes.slice(0, 4).map((outcome, index) => (
-                      <li key={`${module.id}-outcome-${index}`}>{outcome}</li>
-                    ))}
-                  </ul>
-                )}
+                <CardContent className="space-y-3">
+                  {module.outcomes.length > 0 ? (
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                      {module.outcomes.slice(0, 4).map((outcome, index) => (
+                        <li key={`${module.id}-outcome-${index}`}>{outcome}</li>
+                      ))}
+                    </ul>
+                  ) : null}
 
-                <div className="space-y-2">
-                  {module.lessons.map((lesson) => (
-                    <div
-                      key={lesson.id}
-                      className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            Lesson {lesson.index + 1}: {lesson.title}
-                          </p>
-                          <p className="text-xs text-gray-600">Est. {lesson.estimatedMinutes} min</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                              STATUS_STYLE[lesson.buildStatus] || STATUS_STYLE.PENDING
-                            }`}
-                          >
-                            {lesson.buildStatus.replace('_', ' ')}
-                          </span>
-                          {lesson.buildStatus === 'COMPLETED' && (
-                            <Link
-                              href={`/lessons/${lesson.id}`}
-                              className="text-xs font-semibold text-primary hover:underline"
+                  <div className="space-y-2">
+                    {module.lessons.map((lesson) => (
+                      <article key={lesson.id} className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              Lesson {lesson.index + 1}: {lesson.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Est. {lesson.estimatedMinutes} min</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={
+                                lesson.buildStatus === 'COMPLETED'
+                                  ? 'success'
+                                  : lesson.buildStatus === 'FAILED'
+                                    ? 'danger'
+                                    : lesson.buildStatus === 'IN_PROGRESS'
+                                      ? 'warn'
+                                      : 'muted'
+                              }
                             >
-                              Open
-                            </Link>
-                          )}
+                              {lesson.buildStatus.replace('_', ' ')}
+                            </Badge>
+                            {lesson.buildStatus === 'COMPLETED' ? (
+                              <Link href={`/lessons/${lesson.id}`} className="inline-flex items-center text-xs font-semibold text-primary hover:underline">
+                                Open
+                                <ArrowRight className="ml-1 h-3 w-3" />
+                              </Link>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
 
-                      {lesson.notes?.summary && (
-                        <p className="mt-2 line-clamp-2 text-xs text-gray-700">{lesson.notes.summary}</p>
-                      )}
+                        {lesson.notes?.summary ? (
+                          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{lesson.notes.summary}</p>
+                        ) : null}
 
-                      {lesson.resources.length > 0 && (
-                        <p className="mt-1 text-xs text-gray-500">
-                          {lesson.resources.length} curated resource(s) available
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </article>
+                        {lesson.resources.length > 0 ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {lesson.resources.length} curated resource(s) available
+                          </p>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         </section>
 
         <aside className="space-y-4">
-          <div className="rounded-xl border bg-white p-4">
-            <h2 className="text-sm font-semibold text-gray-900">Background Job</h2>
-            {latestBuildJob ? (
-              <>
-                <div className="mt-3 flex items-center gap-2">
-                  <span
-                    className={`inline-block h-2.5 w-2.5 rounded-full ${
-                      latestBuildJob.isWorking
-                        ? 'animate-pulse bg-blue-500'
-                        : latestBuildJob.status === 'COMPLETED'
-                          ? 'bg-green-500'
-                          : latestBuildJob.status === 'FAILED'
-                            ? 'bg-red-500'
-                            : 'bg-gray-400'
-                    }`}
-                  />
-                  <span className="text-sm font-medium text-gray-800">{latestBuildJob.status}</span>
-                </div>
-
-                <dl className="mt-3 space-y-2 text-xs text-gray-600">
-                  <div className="flex justify-between gap-3">
-                    <dt>Phase</dt>
-                    <dd className="font-medium text-gray-900">{latestBuildJob.currentPhase || '—'}</dd>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Background job</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {latestBuildJob ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={latestBuildJob.status === 'COMPLETED' ? 'success' : latestBuildJob.status === 'FAILED' ? 'danger' : latestBuildJob.isWorking ? 'warn' : 'muted'}>
+                      {latestBuildJob.status}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{latestBuildJob.id.slice(-8)}</span>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <dt>Item</dt>
-                    <dd className="max-w-[180px] truncate font-medium text-gray-900">
-                      {latestBuildJob.currentItem || '—'}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt>Modules</dt>
-                    <dd className="font-medium text-gray-900">
-                      {latestBuildJob.completedModules}/{latestBuildJob.totalModules}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt>Lessons</dt>
-                    <dd className="font-medium text-gray-900">
-                      {latestBuildJob.completedLessons}/{latestBuildJob.totalLessons}
-                    </dd>
-                  </div>
-                </dl>
 
-                {latestBuildJob.error && (
-                  <p className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-700">
-                    {latestBuildJob.error}
-                  </p>
-                )}
+                  <dl className="mt-3 space-y-2 text-xs text-muted-foreground">
+                    <div className="flex justify-between gap-3">
+                      <dt>Phase</dt>
+                      <dd className="font-medium text-foreground">{latestBuildJob.currentPhase || '—'}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>Item</dt>
+                      <dd className="max-w-[180px] truncate font-medium text-foreground">{latestBuildJob.currentItem || '—'}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>Modules</dt>
+                      <dd className="font-medium text-foreground">
+                        {latestBuildJob.completedModules}/{latestBuildJob.totalModules}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>Lessons</dt>
+                      <dd className="font-medium text-foreground">
+                        {latestBuildJob.completedLessons}/{latestBuildJob.totalLessons}
+                      </dd>
+                    </div>
+                  </dl>
 
-                {latestBuildJob.status === 'FAILED' && latestBuildJob.retryCount < latestBuildJob.maxRetries && (
-                  <form
-                    action={`/api/programs/generate/retry/${latestBuildJob.id}`}
-                    method="post"
-                    className="mt-3"
-                  >
-                    <button className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white">
-                      Retry Build ({latestBuildJob.retryCount}/{latestBuildJob.maxRetries})
-                    </button>
-                  </form>
-                )}
-              </>
-            ) : (
-              <p className="mt-2 text-xs text-gray-600">No build job history available.</p>
-            )}
-          </div>
+                  {latestBuildJob.error ? (
+                    <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">{latestBuildJob.error}</p>
+                  ) : null}
 
-          <div className="rounded-xl border bg-white p-4 text-sm text-gray-700">
-            <p className="font-semibold text-gray-900">Student Start</p>
-            <p className="mt-1 text-xs text-gray-600">
-              Completed lessons are readable immediately. Open any lesson marked COMPLETED and continue while the rest of the program keeps generating in the background.
-            </p>
-          </div>
+                  {latestBuildJob.status === 'FAILED' && latestBuildJob.retryCount < latestBuildJob.maxRetries ? (
+                    <form action={`/api/programs/generate/retry/${latestBuildJob.id}`} method="post" className="mt-3">
+                      <button className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground">
+                        Retry build ({latestBuildJob.retryCount}/{latestBuildJob.maxRetries})
+                      </button>
+                    </form>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">No build job history available.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <BookOpen className="h-4 w-4 text-muted-foreground" />
+                Student start
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Completed lessons are available immediately while remaining modules continue in the background.
+              </p>
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                <Sparkles className="mr-1 inline h-3.5 w-3.5" />
+                The interface stays quiet. The work happens in the background.
+              </p>
+            </CardContent>
+          </Card>
         </aside>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   )
 }
 

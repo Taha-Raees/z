@@ -1,5 +1,8 @@
 import Link from 'next/link'
+import { CalendarClock, FileWarning } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
+import { AppShell, Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, PageHeader } from '@/components/ui'
+import { productNav } from '@/lib/app-navigation'
 
 function formatDateKey(date: Date): string {
   const y = date.getFullYear()
@@ -53,14 +56,15 @@ export default async function ProgramCalendarPage({ params }: { params: Promise<
 
   if (!program) {
     return (
-      <div className="min-h-screen bg-gray-50 px-6 py-10">
-        <div className="mx-auto max-w-5xl rounded-xl border bg-white p-8">
-          <h1 className="text-2xl font-bold text-gray-900">Program not found</h1>
-          <Link href="/programs" className="mt-4 inline-flex text-primary hover:underline">
-            Back to Programs
-          </Link>
-        </div>
-      </div>
+      <AppShell nav={productNav} currentPath="/programs" status="error">
+        <EmptyState
+          icon={<FileWarning className="h-5 w-5" />}
+          title="Program not found"
+          description="The requested program could not be loaded."
+          ctaHref="/programs"
+          ctaLabel="Back to programs"
+        />
+      </AppShell>
     )
   }
 
@@ -80,57 +84,60 @@ export default async function ProgramCalendarPage({ params }: { params: Promise<
   const days = Array.from(grouped.values()).sort((a, b) => a.date.getTime() - b.date.getTime())
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div>
-            <p className="text-sm text-gray-500">Program Calendar</p>
-            <h1 className="text-2xl font-bold text-gray-900">{program.topic}</h1>
-          </div>
-          <div className="flex gap-2">
-            <Link
-              href={`/programs/${program.id}`}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700"
-            >
-              Program Overview
-            </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white"
-            >
-              Dashboard
-            </Link>
-          </div>
-        </div>
-      </header>
+    <AppShell nav={productNav} currentPath="/programs" status={schedule ? 'ready' : 'running'}>
+      <div className="space-y-6">
+        <PageHeader
+          title={`${program.topic} Calendar`}
+          subtitle="Time budget view generated from persisted schedule items."
+          actions={
+            <>
+              <Link
+                href={`/programs/${program.id}`}
+                className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
+              >
+                Program overview
+              </Link>
+              <Link
+                href="/dashboard"
+                className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"
+              >
+                Dashboard
+              </Link>
+            </>
+          }
+        />
 
-      <main className="mx-auto max-w-6xl px-6 py-6">
-        <div className="mb-5 rounded-xl border bg-white p-4 text-sm text-gray-600">
-          Calendar is generated from persisted schedule items. Estimated minutes are shown to enforce daily time budgeting.
-        </div>
+        <Card className="subtle-gradient">
+          <CardContent className="flex items-start gap-3 p-4">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <CalendarClock className="h-4 w-4" />
+            </span>
+            <p className="text-sm text-muted-foreground">
+              Estimated minutes are grouped by day to keep pacing clear and sustainable.
+            </p>
+          </CardContent>
+        </Card>
 
         {!schedule ? (
-          <div className="rounded-xl border bg-white p-8 text-center">
-            <p className="text-gray-600">Schedule is still being generated in the background.</p>
-          </div>
+          <EmptyState
+            title="Schedule is still generating"
+            description="Background agents are preparing the calendar. Check again shortly."
+          />
         ) : days.length === 0 ? (
-          <div className="rounded-xl border bg-white p-8 text-center">
-            <p className="text-gray-600">No schedule items available yet.</p>
-          </div>
+          <EmptyState title="No schedule items yet" description="Calendar items appear once scheduling artifacts are ready." />
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {days.map((day) => {
               const totalMinutes = day.items.reduce((acc, item) => acc + item.estimatedMinutes, 0)
               return (
-                <section key={formatDateKey(day.date)} className="rounded-xl border bg-white p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-gray-900">{formatLabel(day.date)}</h2>
-                    <span className="text-xs text-gray-600">{totalMinutes} min</span>
-                  </div>
-
-                  <div className="space-y-2">
+                <Card key={formatDateKey(day.date)}>
+                  <CardHeader className="flex flex-row items-center justify-between pb-3">
+                    <CardTitle className="text-sm">{formatLabel(day.date)}</CardTitle>
+                    <Badge variant="muted">{totalMinutes} min</Badge>
+                  </CardHeader>
+                  <CardContent className="space-y-2 pt-0">
                     {day.items.map((item) => (
-                      <div
+                      <article
                         key={item.id}
                         className={`rounded-lg border px-3 py-2 ${itemTypeStyle[item.type] || itemTypeStyle.BREAK}`}
                       >
@@ -141,19 +148,16 @@ export default async function ProgramCalendarPage({ params }: { params: Promise<
                           </span>
                         </div>
                         <p className="mt-1 text-xs">Estimated {item.estimatedMinutes} min</p>
-                        {item.refId && (
-                          <p className="mt-1 truncate text-[10px] opacity-80">Ref: {item.refId}</p>
-                        )}
-                      </div>
+                        {item.refId ? <p className="mt-1 truncate text-[10px] opacity-80">Ref: {item.refId}</p> : null}
+                      </article>
                     ))}
-                  </div>
-                </section>
+                  </CardContent>
+                </Card>
               )
             })}
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </AppShell>
   )
 }
-

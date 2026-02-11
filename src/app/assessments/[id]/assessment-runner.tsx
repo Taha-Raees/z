@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Textarea } from '@/components/ui'
 
 type AssessmentQuestion = {
   type?: string
@@ -97,46 +98,47 @@ export function AssessmentRunner({ assessmentId, questions }: AssessmentRunnerPr
   }
 
   return (
-    <div className="rounded-xl border bg-white p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-gray-900">Timed Mode</h3>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle className="text-sm">Timed mode</CardTitle>
         {!isStarted ? (
-          <button
+          <Button
             onClick={() => {
               setIsStarted(true)
               setResult(null)
               setSubmitError(null)
             }}
-            className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white"
+            size="sm"
           >
-            Start Timed Mode
-          </button>
+            Start timed mode
+          </Button>
         ) : (
-          <span className="rounded bg-blue-100 px-2 py-1 text-[11px] font-semibold text-blue-700">
+          <Badge variant="warn">
             Exam in progress
-          </span>
+          </Badge>
         )}
-      </div>
+      </CardHeader>
 
-      {!isStarted ? (
-        <p className="text-xs text-gray-600">Start the room to answer all questions and submit for grading.</p>
-      ) : (
-        <div className="space-y-3">
+      <CardContent>
+        {!isStarted ? (
+          <p className="text-xs text-muted-foreground">Start the room to answer all questions and submit for grading.</p>
+        ) : (
+          <div className="space-y-3">
           {questions.map((question, index) => {
             const type = normalizeType(question.type)
             const prompt = question.question || question.prompt || 'Question text unavailable'
 
             return (
-              <div key={`${assessmentId}-runner-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <div key={`${assessmentId}-runner-${index}`} className="rounded-lg border border-border/70 bg-muted/30 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Q{index + 1} • {type || 'item'}
                 </p>
-                <p className="mt-1 text-sm text-gray-800">{prompt}</p>
+                <p className="mt-1 text-sm text-foreground/90">{prompt}</p>
 
                 {type === 'mcq' && Array.isArray(question.options) && question.options.length > 0 ? (
                   <div className="mt-2 space-y-1">
                     {question.options.map((option, optionIndex) => (
-                      <label key={`${assessmentId}-q-${index}-opt-${optionIndex}`} className="flex items-center gap-2 text-xs">
+                      <label key={`${assessmentId}-q-${index}-opt-${optionIndex}`} className="flex items-center gap-2 text-xs text-foreground/90">
                         <input
                           type="radio"
                           name={`${assessmentId}-q-${index}`}
@@ -149,25 +151,27 @@ export function AssessmentRunner({ assessmentId, questions }: AssessmentRunnerPr
                   </div>
                 ) : type === 'true_false' ? (
                   <div className="mt-2 flex gap-2 text-xs">
-                    <button
+                    <Button
                       onClick={() => setAnswer(index, true)}
-                      className={`rounded border px-2 py-1 ${answers[index] === true ? 'bg-green-100 border-green-300' : 'bg-white border-gray-300'}`}
+                      variant={answers[index] === true ? 'primary' : 'secondary'}
+                      size="sm"
                     >
                       True
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       onClick={() => setAnswer(index, false)}
-                      className={`rounded border px-2 py-1 ${answers[index] === false ? 'bg-red-100 border-red-300' : 'bg-white border-gray-300'}`}
+                      variant={answers[index] === false ? 'destructive' : 'secondary'}
+                      size="sm"
                     >
                       False
-                    </button>
+                    </Button>
                   </div>
                 ) : (
-                  <textarea
+                  <Textarea
                     value={typeof answers[index] === 'string' ? answers[index] : ''}
                     onChange={(event) => setAnswer(index, event.target.value)}
                     rows={3}
-                    className="mt-2 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                    className="mt-2 min-h-[72px] text-xs"
                     placeholder="Type your answer"
                   />
                 )}
@@ -175,15 +179,15 @@ export function AssessmentRunner({ assessmentId, questions }: AssessmentRunnerPr
             )
           })}
 
-          <button
+          <Button
             onClick={submitAttempt}
             disabled={!canSubmit || isSubmitting}
-            className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+            size="sm"
           >
             {isSubmitting ? 'Submitting...' : 'Submit Assessment'}
-          </button>
+          </Button>
 
-          {submitError && <p className="rounded bg-red-50 px-2 py-1 text-xs text-red-700">{submitError}</p>}
+          {submitError ? <p className="rounded bg-red-50 px-2 py-1 text-xs text-red-700">{submitError}</p> : null}
 
           {result && (
             <p className="rounded bg-green-50 px-2 py-1 text-xs text-green-700">
@@ -194,9 +198,9 @@ export function AssessmentRunner({ assessmentId, questions }: AssessmentRunnerPr
           {result?.grading.feedback && (
             <p className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700">{result.grading.feedback}</p>
           )}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
-

@@ -2,7 +2,19 @@ import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { resolveActiveUser } from '@/lib/user'
 import { unstable_noStore as noStore } from 'next/cache'
-import { InstituteShell } from '@/components/institute-shell'
+import {
+  AppShell,
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  PageHeader,
+  type StatusKind,
+} from '@/components/ui'
+import { productNav } from '@/lib/app-navigation'
+import { BookOpen, CalendarClock, CheckCircle2, ChartColumnBig, PencilLine } from 'lucide-react'
 
 type DailyPlanApiResponse = {
   success: boolean
@@ -174,158 +186,121 @@ async function getStats(): Promise<DashboardStats> {
 export default async function DashboardPage() {
   const [dailyPlan, stats] = await Promise.all([getDailyPlan(), getStats()])
 
-  return (
-    <InstituteShell
-      title="Student Dashboard"
-      subtitle="Track your learning progress and daily schedule"
-      nav={[
-        { href: '/dashboard', label: 'Dashboard', active: true },
-        { href: '/programs', label: 'Programs' },
-        { href: '/practice', label: 'Practice' },
-        { href: '/gradebook', label: 'Gradebook' },
-        { href: '/review', label: 'Review' },
-      ]}
-      breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Dashboard' }]}
-      actions={
-        <Link href="/programs" className="btn-secondary">
-          View Programs
-        </Link>
-      }
-    >
-      <div className="space-y-8 animate-fade-in">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard 
-            icon="📚" 
-            label="Lessons Completed" 
-            value={stats.lessonBlocksCompleted}
-            color="from-blue-500 to-cyan-500"
-          />
-          <StatCard 
-            icon="✍️" 
-            label="Exercises Done" 
-            value={stats.exercisesDone}
-            color="from-emerald-500 to-teal-500"
-          />
-          <StatCard 
-            icon="📝" 
-            label="Quizzes Passed" 
-            value={stats.quizzesPassed}
-            color="from-amber-500 to-orange-500"
-          />
-          <StatCard 
-            icon="⏱️" 
-            label="Hours Studied" 
-            value={stats.hoursStudied}
-            color="from-violet-500 to-purple-500"
-          />
-        </div>
+  const shellStatus: StatusKind = dailyPlan?.items.some((item) => item.status === 'IN_PROGRESS')
+    ? 'running'
+    : dailyPlan?.items.some((item) => item.status === 'PENDING')
+      ? 'needs-input'
+      : 'ready'
 
-        {/* Today's Schedule */}
-        <section className="card-apple p-6">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+  return (
+    <AppShell nav={productNav} currentPath="/dashboard" status={shellStatus}>
+      <div className="space-y-6 animate-fade-in">
+        <PageHeader
+          title="Dashboard"
+          subtitle="A calm view of today’s workload, progress, and next actions."
+          actions={
+            <Link
+              href="/programs"
+              className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              View programs
+            </Link>
+          }
+        />
+
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard icon={<BookOpen className="h-4 w-4" />} label="Lessons completed" value={stats.lessonBlocksCompleted} />
+          <StatCard icon={<PencilLine className="h-4 w-4" />} label="Exercises done" value={stats.exercisesDone} />
+          <StatCard icon={<CheckCircle2 className="h-4 w-4" />} label="Quizzes passed" value={stats.quizzesPassed} />
+          <StatCard icon={<ChartColumnBig className="h-4 w-4" />} label="Hours studied" value={stats.hoursStudied} />
+        </section>
+
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-4 p-5">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Today's Schedule</h2>
-              <p className="text-sm text-muted-foreground">
+              <CardTitle>Today’s plan</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
                 {dailyPlan ? toDisplayDate(dailyPlan.date) : 'No data available'}
               </p>
             </div>
-            {dailyPlan?.programTopic && (
-              <span className="badge-apple bg-indigo-100 text-indigo-700">
-                {dailyPlan.programTopic}
-              </span>
-            )}
-          </div>
+            {dailyPlan?.programTopic ? <Badge variant="muted">{dailyPlan.programTopic}</Badge> : null}
+          </CardHeader>
 
-          {!dailyPlan || dailyPlan.items.length === 0 ? (
-            <div className="rounded-xl bg-muted/50 border border-border/50 p-8 text-center">
-              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-muted flex items-center justify-center">
-                <svg className="w-6 h-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
+          <CardContent className="pt-0">
+            {!dailyPlan || dailyPlan.items.length === 0 ? (
+              <EmptyState
+                icon={<CalendarClock className="h-5 w-5" />}
+                title="No items scheduled"
+                description="No workload is queued for today. Open programs to continue where you left off."
+                ctaHref="/programs"
+                ctaLabel="Open programs"
+              />
+            ) : (
+              <div className="space-y-2">
+                {dailyPlan.items.map((item) => (
+                  <ScheduleItem
+                    key={item.id}
+                    title={`${toTypeLabel(item.type)} activity`}
+                    type={item.type}
+                    status={item.status}
+                    estimatedMinutes={item.estimatedMinutes}
+                    refId={item.refId}
+                  />
+                ))}
               </div>
-              <p className="text-muted-foreground">No scheduled items for today.</p>
-              <Link href="/programs" className="mt-2 inline-flex text-sm text-primary hover:underline">
-                Browse programs
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {dailyPlan.items.map((item) => (
-                <ScheduleItem
-                  key={item.id}
-                  title={`${toTypeLabel(item.type)} activity`}
-                  type={item.type}
-                  status={item.status}
-                  estimatedMinutes={item.estimatedMinutes}
-                  refId={item.refId}
-                />
-              ))}
-            </div>
-          )}
+            )}
 
-          {dailyPlan?.notes && (
-            <div className="mt-4 flex items-start gap-2 rounded-xl bg-blue-50/50 border border-blue-100 p-3">
-              <svg className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-sm text-blue-700">{dailyPlan.notes}</p>
-            </div>
-          )}
-        </section>
+            {dailyPlan?.notes ? (
+              <p className="mt-3 rounded-xl border border-border/70 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                {dailyPlan.notes}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <section className="grid gap-3 md:grid-cols-3">
           <QuickActionCard
-            title="Continue Learning"
-            description="Resume your current lessons and complete pending tasks"
-            icon="▶️"
+            title="Continue learning"
+            description="Jump back into modules and open available lessons."
             href="/programs"
-            gradient="from-indigo-500 to-violet-600"
           />
           <QuickActionCard
-            title="Practice Lab"
-            description="Work on exercises and get instant feedback"
-            icon="💪"
+            title="Practice lab"
+            description="Run workbook sets and receive instant feedback."
             href="/practice"
-            gradient="from-emerald-500 to-teal-600"
           />
           <QuickActionCard
-            title="Academic Record"
-            description="Review your grades and assessment history"
-            icon="📊"
+            title="Academic record"
+            description="Review attempt history, transcripts, and trends."
             href="/gradebook"
-            gradient="from-amber-500 to-orange-600"
           />
-        </div>
+        </section>
       </div>
-    </InstituteShell>
+    </AppShell>
   )
 }
 
-function StatCard({ 
-  icon, 
-  label, 
+function StatCard({
+  icon,
+  label,
   value,
-  color 
-}: { 
-  icon: string
+}: {
+  icon: React.ReactNode
   label: string
   value: string | number
-  color: string
 }) {
   return (
-    <div className="card-apple p-5 group">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="mt-2 text-3xl font-bold text-foreground">{value}</p>
+    <Card>
+      <CardContent className="flex items-start justify-between gap-2 p-4">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
         </div>
-        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-lg shadow-lg transition-transform duration-300 group-hover:scale-110`}>
+        <div className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           {icon}
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -382,45 +357,41 @@ function ScheduleItem({
   const config = statusConfig[status] || statusConfig.PENDING
 
   return (
-    <div className={`rounded-xl border ${config.border} ${config.bg} p-4 transition-all duration-200 hover:shadow-md`}>
-      <div className="flex items-start justify-between gap-4">
+    <article className={`rounded-xl border ${config.border} ${config.bg} p-3`}>
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <span className="text-2xl">{typeIcons[type] || '📌'}</span>
+          <span className="mt-0.5 text-lg">{typeIcons[type] || '📌'}</span>
           <div>
-            <p className="font-medium text-foreground">{title}</p>
-            <p className="text-sm text-muted-foreground">{estimatedMinutes} minutes</p>
+            <p className="text-sm font-medium text-foreground">{title}</p>
+            <p className="text-xs text-muted-foreground">{estimatedMinutes} minutes</p>
+            {refId ? <p className="text-[11px] text-muted-foreground/80">Ref: {refId}</p> : null}
           </div>
         </div>
-        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.text} bg-white/80`}>
+        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${config.text} bg-background`}>
           {config.label}
         </span>
       </div>
-    </div>
+    </article>
   )
 }
 
 function QuickActionCard({
   title,
   description,
-  icon,
   href,
-  gradient,
 }: {
   title: string
   description: string
-  icon: string
   href: string
-  gradient: string
 }) {
   return (
-    <Link href={href} className="card-apple p-5 group block">
-      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center text-2xl shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:shadow-xl`}>
-        {icon}
-      </div>
-      <h3 className="mt-4 text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
-        {title}
-      </h3>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    <Link href={href}>
+      <Card className="h-full transition-colors hover:bg-muted/30">
+        <CardContent className="p-4">
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </CardContent>
+      </Card>
     </Link>
   )
 }

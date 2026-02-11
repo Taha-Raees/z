@@ -1,6 +1,9 @@
 import Link from 'next/link'
+import { ArrowRight, CalendarClock, Repeat2, Siren } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
 import { resolveActiveUser } from '@/lib/user'
+import { AppShell, Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, PageHeader } from '@/components/ui'
+import { productNav } from '@/lib/app-navigation'
 
 function parseJson<T>(value: string | null | undefined): T | null {
   if (!value) return null
@@ -107,140 +110,161 @@ export default async function ReviewCenterPage() {
   const weakLessons = Array.from(weakByLesson.values()).slice(0, 15)
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div>
-            <p className="text-sm text-gray-500">Review Center</p>
-            <h1 className="text-2xl font-bold text-gray-900">Regenerate, Retake, Revisit</h1>
-          </div>
-          <div className="flex gap-2">
-            <Link
-              href="/practice"
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700"
-            >
-              Practice Lab
-            </Link>
-            <Link href="/gradebook" className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white">
-              Gradebook
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto grid max-w-6xl gap-6 px-6 py-6 lg:grid-cols-3">
+    <AppShell nav={productNav} currentPath="/review" status="needs-input">
+      <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-5 lg:col-span-2">
-          <article className="rounded-xl border bg-white p-4">
-            <h2 className="text-lg font-semibold text-gray-900">Weak Topic Queue</h2>
-            <p className="mt-1 text-xs text-gray-600">
-              Lessons with low recent performance. Regenerate similar practice before the next assessment cycle.
-            </p>
+          <PageHeader
+            title="Review"
+            subtitle="Regenerate weak areas, retake at the right interval, and keep momentum calm."
+            actions={
+              <Link
+                href="/practice"
+                className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
+              >
+                Open practice
+              </Link>
+            }
+          />
 
-            {weakLessons.length === 0 ? (
-              <p className="mt-3 text-sm text-gray-600">No weak topics detected from recent attempts.</p>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {weakLessons.map((item) => (
-                  <div key={item.lessonId} className="rounded-lg border border-red-200 bg-red-50 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-red-800">
-                        {item.programTopic} • {item.lessonTitle}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Siren className="h-4 w-4 text-red-600" />
+                Weak topic queue
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Lessons with low recent performance. Regenerate similar practice before your next assessment cycle.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {weakLessons.length === 0 ? (
+                <EmptyState
+                  title="No weak topics detected"
+                  description="Recent attempts are stable. Keep reviewing with spaced repetition."
+                />
+              ) : (
+                <div className="space-y-2">
+                  {weakLessons.map((item) => (
+                    <article key={item.lessonId} className="rounded-xl border border-red-200 bg-red-50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-red-900">
+                          {item.programTopic} • {item.lessonTitle}
+                        </p>
+                        <Badge variant="danger">
+                          {item.latestScore === null ? 'Pending' : `${Math.round(item.latestScore)}%`}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-red-700">Attempts in weak range: {item.attempts}</p>
+                      {item.feedback ? <p className="mt-1 text-xs text-red-700">Feedback: {item.feedback}</p> : null}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Link
+                          href={`/lessons/${item.lessonId}`}
+                          className="inline-flex h-8 items-center rounded-lg border border-red-300 bg-white px-3 text-xs font-medium text-red-700"
+                        >
+                          Open lesson
+                        </Link>
+                        <Link
+                          href="/practice"
+                          className="inline-flex h-8 items-center rounded-lg bg-red-600 px-3 text-xs font-medium text-white"
+                        >
+                          Regenerate practice
+                        </Link>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Repeat2 className="h-4 w-4 text-emerald-600" />
+                Spaced repetition queue
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Prioritized from recent attempts with score-weighted review intervals.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {spacedQueue.length === 0 ? (
+                <EmptyState
+                  title="Queue is empty"
+                  description="Complete more workbook sets to build an adaptive repetition queue."
+                />
+              ) : (
+                <div className="space-y-2">
+                  {spacedQueue.map((item) => (
+                    <article key={item.id} className={`rounded-xl border p-3 ${bucketStyle[item.bucket]}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">
+                          {item.programTopic} • {item.lessonTitle}
+                        </p>
+                        <Badge variant={item.bucket === 'strong' ? 'success' : item.bucket === 'medium' ? 'warn' : 'danger'}>
+                          {item.score === null ? 'Pending' : `${Math.round(item.score)}%`}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs">
+                        Next review: {item.nextReview.toLocaleDateString()} (every {item.revisitDays} day(s))
                       </p>
-                      <span className="rounded bg-white px-2 py-0.5 text-xs font-semibold text-red-700">
-                        {item.latestScore === null ? 'Pending' : `${Math.round(item.latestScore)}%`}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-red-700">Attempts in weak range: {item.attempts}</p>
-                    {item.feedback && <p className="mt-1 text-xs text-red-700">Feedback: {item.feedback}</p>}
-                    <div className="mt-2 flex gap-2">
-                      <Link
-                        href={`/lessons/${item.lessonId}`}
-                        className="rounded border border-red-300 bg-white px-2 py-1 text-xs font-semibold text-red-700"
-                      >
-                        Open Lesson
+                      <Link href={`/lessons/${item.lessonId}`} className="mt-2 inline-flex items-center text-xs font-semibold underline">
+                        Revisit lesson
+                        <ArrowRight className="ml-1 h-3 w-3" />
                       </Link>
-                      <Link
-                        href="/practice"
-                        className="rounded bg-red-600 px-2 py-1 text-xs font-semibold text-white"
-                      >
-                        Regenerate Practice
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </article>
-
-          <article className="rounded-xl border bg-white p-4">
-            <h2 className="text-lg font-semibold text-gray-900">Spaced Repetition Queue</h2>
-            <p className="mt-1 text-xs text-gray-600">
-              Auto-prioritized from recent attempts with score-weighted review intervals.
-            </p>
-
-            {spacedQueue.length === 0 ? (
-              <p className="mt-3 text-sm text-gray-600">No activity yet to build a repetition queue.</p>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {spacedQueue.map((item) => (
-                  <div key={item.id} className={`rounded-lg border p-3 ${bucketStyle[item.bucket]}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold">
-                        {item.programTopic} • {item.lessonTitle}
-                      </p>
-                      <span className="rounded bg-white px-2 py-0.5 text-xs font-semibold">
-                        {item.score === null ? 'Pending' : `${Math.round(item.score)}%`}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs">
-                      Next review: {item.nextReview.toLocaleDateString()} (every {item.revisitDays} day(s))
-                    </p>
-                    <Link href={`/lessons/${item.lessonId}`} className="mt-2 inline-flex text-xs font-semibold underline">
-                      Revisit Lesson
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            )}
-          </article>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </section>
 
         <aside className="space-y-4">
-          <div className="rounded-xl border bg-white p-4">
-            <h3 className="text-sm font-semibold text-gray-900">Weekly Review Objectives</h3>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-gray-600">
-              <li>Reattempt at least 3 weak-topic workbooks</li>
-              <li>Complete one quiz retake from Assessments</li>
-              <li>Review glossary for all lessons below 70%</li>
-              <li>Regenerate one mixed-difficulty practice set</li>
-            </ul>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Weekly review objectives</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                <li>Reattempt at least 3 weak-topic workbooks</li>
+                <li>Complete one quiz retake from Assessments</li>
+                <li>Review glossary for all lessons below 70%</li>
+                <li>Regenerate one mixed-difficulty practice set</li>
+              </ul>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-xl border bg-white p-4">
-            <h3 className="text-sm font-semibold text-gray-900">Action Links</h3>
-            <div className="mt-2 space-y-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Action links</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
               <Link
                 href="/practice"
-                className="block rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700"
+                className="inline-flex h-9 w-full items-center justify-between rounded-lg border border-border px-3 text-xs font-medium text-foreground hover:bg-muted"
               >
-                Open Practice Lab
+                Open practice
+                <ArrowRight className="h-3.5 w-3.5" />
               </Link>
               <Link
                 href="/programs"
-                className="block rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700"
+                className="inline-flex h-9 w-full items-center justify-between rounded-lg border border-border px-3 text-xs font-medium text-foreground hover:bg-muted"
               >
-                Return to Programs
+                Return to programs
+                <ArrowRight className="h-3.5 w-3.5" />
               </Link>
               <Link
                 href="/dashboard"
-                className="block rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white"
+                className="inline-flex h-9 w-full items-center justify-between rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground"
               >
-                Today&apos;s Schedule
+                Today&apos;s schedule
+                <CalendarClock className="h-3.5 w-3.5" />
               </Link>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </aside>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   )
 }

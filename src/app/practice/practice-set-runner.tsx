@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { Badge, Button, Card, CardContent, Textarea } from '@/components/ui'
 
 type QuestionPayload = {
   type?: string
@@ -106,29 +107,30 @@ export function PracticeSetRunner({
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+    <Card className="mt-3 border-border/70 bg-muted/20">
+      <CardContent className="p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-xs text-gray-600">{description}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
         {!isStarted ? (
-          <button
+          <Button
             onClick={() => {
               setIsStarted(true)
               setResult(null)
               setSubmitError(null)
             }}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white"
+            size="sm"
           >
             Start Set
-          </button>
+          </Button>
         ) : (
-          <span className="rounded bg-blue-100 px-2 py-1 text-[11px] font-semibold text-blue-700">
+          <Badge variant="warn">
             In Progress
-          </span>
+          </Badge>
         )}
       </div>
 
       {!isStarted ? (
-        <p className="text-[11px] text-gray-500">Open the workbook to answer and submit for grading.</p>
+        <p className="text-[11px] text-muted-foreground">Open the workbook to answer and submit for grading.</p>
       ) : (
         <div className="space-y-3">
           {questions.map((question, index) => {
@@ -136,16 +138,16 @@ export function PracticeSetRunner({
             const prompt = question.question || question.prompt || 'Question unavailable'
 
             return (
-              <div key={`${exerciseSetId}-runner-${index}`} className="rounded-md border bg-white p-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              <div key={`${exerciseSetId}-runner-${index}`} className="rounded-md border border-border/70 bg-background p-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Q{index + 1} • {type || 'item'}
                 </p>
-                <p className="mt-1 text-xs text-gray-800">{prompt}</p>
+                <p className="mt-1 text-xs text-foreground/90">{prompt}</p>
 
                 {type === 'mcq' && Array.isArray(question.options) && question.options.length > 0 ? (
                   <div className="mt-2 space-y-1">
                     {question.options.map((option, optionIndex) => (
-                      <label key={`${exerciseSetId}-q-${index}-opt-${optionIndex}`} className="flex items-center gap-2 text-xs">
+                      <label key={`${exerciseSetId}-q-${index}-opt-${optionIndex}`} className="flex items-center gap-2 text-xs text-foreground/90">
                         <input
                           type="radio"
                           name={`${exerciseSetId}-q-${index}`}
@@ -158,25 +160,27 @@ export function PracticeSetRunner({
                   </div>
                 ) : type === 'true_false' ? (
                   <div className="mt-2 flex gap-2 text-xs">
-                    <button
+                    <Button
                       onClick={() => setAnswer(index, true)}
-                      className={`rounded border px-2 py-1 ${answers[index] === true ? 'bg-green-100 border-green-300' : 'bg-white border-gray-300'}`}
+                      variant={answers[index] === true ? 'primary' : 'secondary'}
+                      size="sm"
                     >
                       True
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       onClick={() => setAnswer(index, false)}
-                      className={`rounded border px-2 py-1 ${answers[index] === false ? 'bg-red-100 border-red-300' : 'bg-white border-gray-300'}`}
+                      variant={answers[index] === false ? 'destructive' : 'secondary'}
+                      size="sm"
                     >
                       False
-                    </button>
+                    </Button>
                   </div>
                 ) : (
-                  <textarea
+                  <Textarea
                     value={typeof answers[index] === 'string' ? answers[index] : ''}
                     onChange={(event) => setAnswer(index, event.target.value)}
                     rows={2}
-                    className="mt-2 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                    className="mt-2 min-h-[64px] text-xs"
                     placeholder="Type your answer"
                   />
                 )}
@@ -185,13 +189,13 @@ export function PracticeSetRunner({
           })}
 
           <div className="flex items-center gap-2">
-            <button
+            <Button
               onClick={submitAttempt}
               disabled={!canSubmit || isSubmitting}
-              className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              size="sm"
             >
               {isSubmitting ? 'Submitting...' : 'Submit Attempt'}
-            </button>
+            </Button>
             <a href={`/lessons/${lessonId}`} className="text-xs font-semibold text-primary hover:underline">
               Back to Lesson
             </a>
@@ -210,13 +214,13 @@ export function PracticeSetRunner({
           )}
 
           {result && (
-            <p className="text-[10px] text-gray-500">Attempt recorded: {result.attemptId}</p>
+            <p className="text-[10px] text-muted-foreground">Attempt recorded: {result.attemptId}</p>
           )}
         </div>
       )}
 
-      <p className="mt-2 text-[10px] text-gray-500">Workbook: {title}</p>
-    </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">Workbook: {title}</p>
+      </CardContent>
+    </Card>
   )
 }
-

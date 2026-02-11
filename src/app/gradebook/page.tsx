@@ -1,7 +1,25 @@
 import Link from 'next/link'
+import { BookOpenCheck, GraduationCap, Sigma } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
 import { resolveActiveUser } from '@/lib/user'
-import { InstituteShell } from '@/components/institute-shell'
+import {
+  AppShell,
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  PageHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableWrapper,
+} from '@/components/ui'
+import { productNav } from '@/lib/app-navigation'
 
 function formatScore(score: number | null): string {
   if (score === null || Number.isNaN(score)) return 'Pending'
@@ -60,106 +78,114 @@ export default async function GradebookPage() {
     allScores.length > 0 ? Math.round(allScores.reduce((acc, score) => acc + score, 0) / allScores.length) : null
 
   return (
-    <InstituteShell
-      title="Academic Record"
-      subtitle="Gradebook and transcript across assessments and workbook attempts."
-      nav={[
-        { href: '/dashboard', label: 'Dashboard' },
-        { href: '/programs', label: 'Programs' },
-        { href: '/practice', label: 'Practice Lab' },
-        { href: '/gradebook', label: 'Gradebook', active: true },
-        { href: '/review', label: 'Review Center' },
-      ]}
-      breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Gradebook' }]}
-      actions={
-        <Link
-          href="/review"
-          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
-        >
-          Open Review Center
-        </Link>
-      }
-    >
+    <AppShell nav={productNav} currentPath="/gradebook" status="ready">
       <div className="space-y-6">
-        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded-xl border bg-white p-4">
-            <p className="text-xs uppercase tracking-wide text-gray-500">Assessment Attempts</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">{assessmentAttempts.length}</p>
-          </div>
-          <div className="rounded-xl border bg-white p-4">
-            <p className="text-xs uppercase tracking-wide text-gray-500">Practice Attempts</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">{exerciseAttempts.length}</p>
-          </div>
-          <div className="rounded-xl border bg-white p-4">
-            <p className="text-xs uppercase tracking-wide text-gray-500">Average Score</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">{averageScore === null ? 'Pending' : `${averageScore}%`}</p>
-          </div>
-        </div>
+        <PageHeader
+          title="Gradebook"
+          subtitle="Transcript across assessments and workbook attempts."
+          actions={
+            <Link
+              href="/review"
+              className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
+            >
+              Open review center
+            </Link>
+          }
+        />
 
-        <section className="mb-6 rounded-xl border bg-white p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Assessment Transcript</h2>
-          {assessmentAttempts.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-600">No assessment attempts yet.</p>
-          ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-                    <th className="px-2 py-2">Date</th>
-                    <th className="px-2 py-2">Program</th>
-                    <th className="px-2 py-2">Assessment</th>
-                    <th className="px-2 py-2">Type</th>
-                    <th className="px-2 py-2">Score</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {assessmentAttempts.map((attempt) => (
-                    <tr key={attempt.id}>
-                      <td className="px-2 py-2 text-gray-600">{attempt.startedAt.toLocaleDateString()}</td>
-                      <td className="px-2 py-2 text-gray-800">{attempt.assessment.program.topic}</td>
-                      <td className="px-2 py-2 text-gray-800">{attempt.assessment.title}</td>
-                      <td className="px-2 py-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            assessmentTypeColor[attempt.assessment.type] || 'bg-gray-100 text-gray-700'
-                          }`}
-                        >
-                          {attempt.assessment.type}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 font-semibold text-gray-900">{formatScore(attempt.score)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <section className="grid gap-3 md:grid-cols-3">
+          <StatCard icon={<GraduationCap className="h-4 w-4" />} label="Assessment attempts" value={assessmentAttempts.length} />
+          <StatCard icon={<BookOpenCheck className="h-4 w-4" />} label="Practice attempts" value={exerciseAttempts.length} />
+          <StatCard icon={<Sigma className="h-4 w-4" />} label="Average score" value={averageScore === null ? 'Pending' : `${averageScore}%`} />
         </section>
 
-        <section className="rounded-xl border bg-white p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Practice History</h2>
-          {exerciseAttempts.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-600">No practice attempts yet.</p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Assessment transcript</CardTitle>
+          </CardHeader>
+          <CardContent>
+          {assessmentAttempts.length === 0 ? (
+            <EmptyState
+              title="No assessment attempts"
+              description="Your submitted quiz, test, and exam attempts will appear here."
+            />
           ) : (
-            <div className="mt-3 space-y-2">
+            <TableWrapper>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Program</TableHead>
+                    <TableHead>Assessment</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Score</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {assessmentAttempts.map((attempt) => (
+                    <TableRow key={attempt.id}>
+                      <TableCell className="text-muted-foreground">{attempt.startedAt.toLocaleDateString()}</TableCell>
+                      <TableCell>{attempt.assessment.program.topic}</TableCell>
+                      <TableCell>{attempt.assessment.title}</TableCell>
+                      <TableCell>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${assessmentTypeColor[attempt.assessment.type] || 'bg-gray-100 text-gray-700'}`}>
+                          {attempt.assessment.type}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-semibold">{formatScore(attempt.score)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableWrapper>
+          )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Practice history</CardTitle>
+          </CardHeader>
+          <CardContent>
+          {exerciseAttempts.length === 0 ? (
+            <EmptyState title="No practice attempts" description="Practice submissions will appear once you complete workbook sets." />
+          ) : (
+            <div className="space-y-2">
               {exerciseAttempts.map((attempt) => (
-                <div key={attempt.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <article key={attempt.id} className="rounded-xl border border-border/70 bg-muted/30 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-gray-900">
+                    <p className="text-sm font-semibold text-foreground">
                       {attempt.exerciseSet.lesson.module.program.topic} • {attempt.exerciseSet.lesson.title}
                     </p>
-                    <p className="text-sm font-semibold text-gray-900">{formatScore(attempt.score)}</p>
+                    <Badge variant={attempt.score !== null && attempt.score >= 70 ? 'success' : attempt.score === null ? 'muted' : 'warn'}>
+                      {formatScore(attempt.score)}
+                    </Badge>
                   </div>
-                  <p className="text-xs text-gray-600">
+                  <p className="text-xs text-muted-foreground">
                     Attempted {attempt.createdAt.toLocaleDateString()} • Difficulty{' '}
                     {attempt.exerciseSet.difficulty.toLowerCase()} • Type {attempt.exerciseSet.type.toLowerCase()}
                   </p>
-                </div>
+                </article>
               ))}
             </div>
           )}
-        </section>
+          </CardContent>
+        </Card>
       </div>
-    </InstituteShell>
+    </AppShell>
+  )
+}
+
+function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+  return (
+    <Card>
+      <CardContent className="flex items-start justify-between p-4">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
+        </div>
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">{icon}</span>
+      </CardContent>
+    </Card>
   )
 }

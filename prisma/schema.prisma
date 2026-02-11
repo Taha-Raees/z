@@ -34,6 +34,7 @@ model User {
   agentRuns      AgentRun[]
   onboardingSessions OnboardingSession[]
   programBuildJobs ProgramBuildJob[]
+  jobRuns        JobRun[]
 
   @@map("users")
 }
@@ -439,7 +440,78 @@ enum ProgramStatus {
 }
 
 // ============================================
-// Background Program Build Jobs
+// Generic Job Run System (v0.2)
+// ============================================
+
+enum JobStatus {
+  READY
+  RUNNING
+  NEEDS_INPUT
+  ERROR
+  DONE
+}
+
+enum JobStepStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum JobEventLevel {
+  INFO
+  WARN
+  ERROR
+  DEBUG
+}
+
+model JobRun {
+  id          String     @id @default(cuid())
+  userId      String
+  type        String     // 'program_build', 'daily_run', 'lesson_generate', 'practice_generate', 'review_generate'
+  status      JobStatus  @default(READY)
+  inputJson   String     @default("{}")
+  outputJson  String     @default("{}")
+  error       String?
+  errorCode   String?    // Normalized error code for programmatic handling
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  // Relations
+  steps       JobStep[]
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Indexes for common queries
+  @@index([userId])
+  @@index([userId, status])
+  @@index([type, status])
+  @@index([createdAt])
+  @@map("job_runs")
+}
+
+model JobStep {
+  id          String        @id @default(cuid())
+  jobId       String
+  stepName    String
+  status      JobStepStatus @default(PENDING)
+  message     String?
+  dataJson    String        @default("{}")
+  timestamp   DateTime      @default(now())
+  durationMs  Int?          // How long this step took
+  
+  // Relations
+  job         JobRun        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  @@index([jobId])
+  @@index([jobId, timestamp])
+  @@map("job_steps")
+}
+
+// ============================================
+// Background Program Build Jobs (Legacy - kept for compatibility)
 // ============================================
 
 model ProgramBuildJob {
