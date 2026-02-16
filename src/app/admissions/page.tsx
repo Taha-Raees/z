@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Bot, Circle, Loader2, Sparkles, UserRound } from 'lucide-react'
+import { ArrowRight, Bot, Circle, Clock3, ListChecks, Loader2, Sparkles, UserRound } from 'lucide-react'
 import {
   AppShell,
   Badge,
@@ -15,29 +15,20 @@ import {
   EmptyState,
   PageHeader,
   Textarea,
+  type StatusKind,
 } from '@/components/ui'
 import { productNav } from '@/lib/app-navigation'
-
-type OnboardingProfile = {
-  topic: string
-  currentLevel: string
-  goalLevel: string
-  targetDate: string
-  hoursPerDay: number
-  pacePreference: string
-  [key: string]: unknown
-}
-
-type AdmissionsQuestion = {
-  questionKey: string
-  question: string
-  rationale?: string
-  type: 'text' | 'number' | 'select' | 'multiselect' | 'boolean'
-  options?: string[]
-  required?: boolean
-  questionNumber?: number
-  progress?: number
-}
+import {
+  fetchProgramBuildStatus,
+  queueProgramBuild,
+  recoverProgramBuild,
+  retryProgramBuild,
+  startAdmissionsSession,
+  submitAdmissionsAnswer,
+  type AdmissionsQuestion,
+  type OnboardingProfile,
+} from '@/lib/api'
+import { mapBuildStatus } from '@/lib/status-mapper'
 
 type StreamProgressItem = {
   index?: number
@@ -105,12 +96,6 @@ const STATUS_STYLE: Record<string, string> = {
   IN_PROGRESS: 'bg-blue-100 text-blue-700',
   COMPLETED: 'bg-green-100 text-green-700',
   FAILED: 'bg-red-100 text-red-700',
-}
-
-function shortDate(input: string): string {
-  const date = new Date(input)
-  if (Number.isNaN(date.getTime())) return input
-  return date.toLocaleDateString()
 }
 
 function clampProgress(value: number): number {
@@ -185,13 +170,15 @@ export default function AdmissionsPage() {
     Boolean(partialProgram) ||
     Boolean(buildStatus)
 
-  const shellStatus = generationError || buildStatus?.status === 'FAILED'
+  const shellStatus: StatusKind = generationError || buildStatus?.status === 'FAILED'
     ? 'error'
-    : isGeneratingProgram || buildStatus?.isWorking
-      ? 'running'
-      : !sessionId || !isComplete
-        ? 'needs-input'
-        : 'ready'
+    : buildStatus?.isWorking && partialReadyLessons > 0
+      ? 'partial-ready'
+      : isGeneratingProgram || buildStatus?.isWorking
+        ? 'running'
+        : !sessionId || !isComplete
+          ? 'needs-input'
+          : 'ready'
 
   const clearPersistedBuild = useCallback(() => {
     try {
@@ -432,7 +419,7 @@ export default function AdmissionsPage() {
               redirectedRef.current = true
               setTimeout(() => {
                 window.location.href = `/programs/${nextProgramId}`
-              }, 850)
+              }, 800)
             }
 
             return
@@ -497,7 +484,7 @@ export default function AdmissionsPage() {
         }
       }
     },
-    [appendGenerationLog, buildStatus?.status, clearPersistedBuild, lastEventIndex, programId, updateStatusFromPayload]
+    [appendGenerationLog, clearPersistedBuild, lastEventIndex, programId, updateStatusFromPayload]
   )
 
   useEffect(() => {
@@ -525,19 +512,7 @@ export default function AdmissionsPage() {
           timestamp: new Date().toISOString(),
         })
 
-        const statusResponse = await fetch(`/api/programs/generate/status/${persisted.jobId}`, {
-          cache: 'no-store',
-        })
-
-        if (!statusResponse.ok) {
-          clearPersistedBuild()
-          return
-        }
-
-        const statusData = (await statusResponse.json()) as {
-          job?: Record<string, unknown>
-          program?: PartialProgramSnapshot
-        }
+        const statusData = await fetchProgramBuildStatus(persisted.jobId)
 
         if (!mounted) return
 
@@ -551,7 +526,7 @@ export default function AdmissionsPage() {
         }
 
         if (statusData.program) {
-          setPartialProgram(statusData.program)
+          setPartialProgram(statusData.program as PartialProgramSnapshot)
         }
 
         const status = typeof statusData.job?.status === 'string' ? statusData.job.status : null
@@ -585,23 +560,13 @@ export default function AdmissionsPage() {
 
     setIsLoading(true)
     try {
-      const response = await fetch('/api/admissions/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          questionKey: currentQuestion.questionKey,
-          answer,
-        }),
+      const data = await submitAdmissionsAnswer({
+        sessionId,
+        questionKey: currentQuestion.questionKey,
+        answer,
       })
 
-      const data = (await response.json()) as {
-        isComplete: boolean
-        profile?: OnboardingProfile
-        nextQuestion?: AdmissionsQuestion
-      }
-
-      if (data.isComplete && data.profile) {
+      if (data.isComplete) {
         setIsComplete(true)
         setProfile(data.profile)
       } else if (data.nextQuestion) {
@@ -609,7 +574,7 @@ export default function AdmissionsPage() {
         setAnswer('')
       }
     } catch (error) {
-      console.error('Error submitting answer:', error)
+      setGenerationError(error instanceof Error ? error.message : 'Failed to submit answer')
     } finally {
       setIsLoading(false)
     }
@@ -618,19 +583,12 @@ export default function AdmissionsPage() {
   const handleStart = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/admissions/start', {
-        method: 'POST',
-      })
-
-      const data = (await response.json()) as {
-        sessionId: string
-        currentQuestion: AdmissionsQuestion
-      }
-
+      const data = await startAdmissionsSession()
       setSessionId(data.sessionId)
       setCurrentQuestion(data.currentQuestion)
+      setGenerationError(null)
     } catch (error) {
-      console.error('Error starting admissions:', error)
+      setGenerationError(error instanceof Error ? error.message : 'Failed to start admissions')
     } finally {
       setIsLoading(false)
     }
@@ -652,22 +610,9 @@ export default function AdmissionsPage() {
     })
 
     try {
-      const response = await fetch('/api/programs/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile }),
-      })
+      const payload = await queueProgramBuild(profile)
 
-      const payload = (await response.json()) as {
-        success?: boolean
-        error?: string
-        jobId?: string
-        programId?: string
-        reused?: boolean
-        status?: string
-      }
-
-      if (!response.ok || !payload.jobId) {
+      if (!payload.jobId) {
         throw new Error(payload.error || 'Failed to queue program generation')
       }
 
@@ -730,71 +675,7 @@ export default function AdmissionsPage() {
     })
 
     try {
-      const response = await fetch(`/api/programs/generate/retry/${buildJobId}`, {
-        method: 'POST',
-      })
-
-      const payload = (await response.json()) as {
-        success?: boolean
-        error?: string
-        retryCount?: number
-        maxRetries?: number
-        resumeFrom?: string
-      }
-
-      if (!response.ok) {
-        // Check if we need to recover a stale RUNNING job
-        if (response.status === 409 && payload.error?.includes('RUNNING')) {
-          // Job is RUNNING but might be stale - try recover
-          appendGenerationLog({
-            step: 'Recover',
-            status: 'in_progress',
-            message: 'Job appears stuck. Attempting recovery...',
-            timestamp: new Date().toISOString(),
-          })
-          
-          const recoverResponse = await fetch(`/api/programs/generate/recover/${buildJobId}`, {
-            method: 'POST',
-          })
-          
-          const recoverPayload = (await recoverResponse.json()) as {
-            success?: boolean
-            error?: string
-            resumeFrom?: string
-          }
-          
-          if (!recoverResponse.ok) {
-            throw new Error(recoverPayload.error || 'Recovery request failed')
-          }
-          
-          setBuildStatus((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  status: 'QUEUED',
-                  isWorking: true,
-                  error: null,
-                  currentPhase: 'queued',
-                  currentItem: null,
-                }
-              : prev
-          )
-
-          appendGenerationLog({
-            step: 'Recover',
-            status: 'completed',
-            message: recoverPayload.resumeFrom 
-              ? `Recovered. Resuming from: ${recoverPayload.resumeFrom}`
-              : 'Recovery complete. Reconnecting to background stream...',
-            timestamp: new Date().toISOString(),
-          })
-
-          await connectBuildStream(buildJobId, lastEventIndex)
-          return
-        }
-        
-        throw new Error(payload.error || 'Resume request failed')
-      }
+      const payload = await retryProgramBuild(buildJobId)
 
       setBuildStatus((prev) =>
         prev
@@ -814,7 +695,7 @@ export default function AdmissionsPage() {
       appendGenerationLog({
         step: 'Resume',
         status: 'completed',
-        message: payload.resumeFrom 
+        message: payload.resumeFrom
           ? `Resuming from: ${payload.resumeFrom}`
           : 'Resume queued. Reconnecting to background stream...',
         timestamp: new Date().toISOString(),
@@ -849,20 +730,7 @@ export default function AdmissionsPage() {
     })
 
     try {
-      const response = await fetch(`/api/programs/generate/recover/${buildJobId}`, {
-        method: 'POST',
-      })
-
-      const payload = (await response.json()) as {
-        success?: boolean
-        error?: string
-        resumeFrom?: string
-        checkpoint?: any
-      }
-
-      if (!response.ok) {
-        throw new Error(payload.error || 'Recovery request failed')
-      }
+      const payload = await recoverProgramBuild(buildJobId)
 
       setBuildStatus((prev) =>
         prev
@@ -880,7 +748,7 @@ export default function AdmissionsPage() {
       appendGenerationLog({
         step: 'Recover',
         status: 'completed',
-        message: payload.resumeFrom 
+        message: payload.resumeFrom
           ? `Recovered. Resuming from: ${payload.resumeFrom}`
           : 'Recovery complete. Reconnecting to background stream...',
         timestamp: new Date().toISOString(),
@@ -913,37 +781,32 @@ export default function AdmissionsPage() {
           ? 'Running'
           : 'Idle'
 
-    const statusVariant: 'muted' | 'success' | 'warn' | 'danger' =
-      buildStatus?.status === 'FAILED'
-        ? 'danger'
-        : buildStatus?.status === 'COMPLETED'
-          ? 'success'
-          : isRunning
-            ? 'warn'
-            : 'muted'
+    const statusMeta = mapBuildStatus(buildStatus?.status)
 
     return (
       <Card className="mt-6">
         <CardHeader className="flex flex-row items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base">Program build pipeline</CardTitle>
-            <CardDescription>Background iterative generation with reconnect-safe streaming.</CardDescription>
+            <CardTitle className="font-display text-lg">Program Build Pipeline</CardTitle>
+            <CardDescription>
+              Live queue, progress timeline, partial lesson availability, and reconnect-safe state.
+            </CardDescription>
           </div>
 
           <div className="flex items-center gap-2 text-xs">
             <Circle
-              className={`h-3.5 w-3.5 ${
+              className={
                 isRunning
-                  ? 'animate-pulse text-blue-500'
+                  ? 'status-pulse h-3.5 w-3.5 text-blue-500'
                   : buildStatus?.status === 'COMPLETED'
-                    ? 'text-green-500'
+                    ? 'h-3.5 w-3.5 text-green-500'
                     : buildStatus?.status === 'FAILED'
-                      ? 'text-red-500'
-                      : 'text-muted-foreground'
-              }`}
+                      ? 'h-3.5 w-3.5 text-red-500'
+                      : 'h-3.5 w-3.5 text-muted-foreground'
+              }
               fill="currentColor"
             />
-            <Badge variant={statusVariant}>{statusLabel}</Badge>
+            <Badge variant={statusMeta.tone}>{statusLabel}</Badge>
             {buildJobId ? (
               <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
                 {buildJobId.slice(-8)}
@@ -953,67 +816,37 @@ export default function AdmissionsPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            Background agents continue working while you can proceed with admissions or open generated lessons.
-          </p>
-
           {buildStatus ? (
-            <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">Phase:</span>
-                  <span className="rounded bg-background px-2 py-0.5 text-foreground">
-                    {buildStatus.currentPhase || 'queued'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">Current item:</span>
-                  <span className="max-w-[220px] truncate rounded bg-background px-2 py-0.5 text-foreground">
-                    {buildStatus.currentItem || '—'}
-                  </span>
-                </div>
+            <div className="surface-muted p-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="rounded bg-background px-2 py-1">Phase: {buildStatus.currentPhase || 'queued'}</span>
+                <span className="rounded bg-background px-2 py-1">Item: {buildStatus.currentItem || '—'}</span>
+                <span className="rounded bg-background px-2 py-1">Retries: {buildStatus.retryCount}/{buildStatus.maxRetries}</span>
+                {buildStatus.programId ? (
+                  <Link href={`/programs/${buildStatus.programId}`} className="rounded bg-primary px-2 py-1 font-semibold text-primary-foreground">
+                    Open Program
+                  </Link>
+                ) : null}
               </div>
 
               <div className="mt-3">
-                <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>
                     Lessons {buildStatus.completedLessons}/{Math.max(buildStatus.totalLessons, 0)}
                   </span>
                   <span>{Math.round(buildProgressPercent)}%</span>
                 </div>
-                <div className="h-1.5 w-full rounded-full bg-muted">
-                  <div
-                    className="h-1.5 rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.round(buildProgressPercent)}%` }}
-                  />
+                <div className="h-1.5 rounded-full bg-muted">
+                  <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${Math.round(buildProgressPercent)}%` }} />
                 </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <span className="rounded bg-background px-2 py-1 text-foreground">
-                  Modules: {buildStatus.completedModules}/{buildStatus.totalModules}
-                </span>
-                <span className="rounded bg-background px-2 py-1 text-foreground">
-                  Retries: {buildStatus.retryCount}/{buildStatus.maxRetries}
-                </span>
-                {buildStatus.programId ? (
-                  <Link
-                    href={`/programs/${buildStatus.programId}`}
-                    className="rounded bg-primary px-2 py-1 font-semibold text-primary-foreground"
-                  >
-                    Open Program
-                  </Link>
-                ) : null}
               </div>
             </div>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Live event log
-              </h4>
-              <div className="mt-2 max-h-56 space-y-2 overflow-auto rounded border border-border/70 bg-background p-2">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <div className="surface-muted p-3">
+              <h4 className="font-display text-sm font-semibold text-foreground">Build Timeline</h4>
+              <div className="mt-2 max-h-64 space-y-2 overflow-auto rounded-lg border border-border/70 bg-background p-2">
                 {generationLogs.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Waiting for background events...</p>
                 ) : null}
@@ -1021,18 +854,18 @@ export default function AdmissionsPage() {
                 {generationLogs.map((log, index) => (
                   <div key={`${log.index ?? index}-${log.step}-${index}`} className="flex items-start gap-2 text-xs">
                     <span
-                      className={`mt-1 inline-block h-2 w-2 rounded-full ${
+                      className={
                         log.status === 'completed'
-                          ? 'bg-green-500'
+                          ? 'mt-1 inline-block h-2 w-2 rounded-full bg-green-500'
                           : log.status === 'failed'
-                            ? 'bg-red-500'
+                            ? 'mt-1 inline-block h-2 w-2 rounded-full bg-red-500'
                             : log.status === 'in_progress'
-                              ? 'animate-pulse bg-blue-500'
-                              : 'bg-gray-400'
-                      }`}
+                              ? 'status-pulse mt-1 inline-block h-2 w-2 rounded-full bg-blue-500'
+                              : 'mt-1 inline-block h-2 w-2 rounded-full bg-gray-400'
+                      }
                     />
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">{log.step}</p>
+                      <p className="truncate font-semibold text-foreground">{log.step}</p>
                       {log.message ? <p className="text-muted-foreground">{log.message}</p> : null}
                       {log.timestamp ? (
                         <p className="text-[10px] text-muted-foreground">
@@ -1045,20 +878,18 @@ export default function AdmissionsPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border/70 bg-muted/30 p-3">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Partial program availability
-              </h4>
+            <div className="surface-muted p-3">
+              <h4 className="font-display text-sm font-semibold text-foreground">Partial Lesson Availability</h4>
               {partialProgram ? (
                 <>
                   <p className="mt-2 text-xs text-muted-foreground">
                     Ready lessons: <span className="font-semibold text-foreground">{partialReadyLessons}</span>
                   </p>
-                  <div className="mt-2 max-h-56 space-y-2 overflow-auto">
+                  <div className="mt-2 max-h-64 space-y-2 overflow-auto">
                     {partialProgram.modules.map((module) => (
-                      <div key={module.id} className="rounded border border-border/70 bg-background p-2">
+                      <div key={module.id} className="rounded-lg border border-border/70 bg-background p-2">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-medium text-foreground">
+                          <p className="text-xs font-semibold text-foreground">
                             Module {module.index + 1}: {module.title}
                           </p>
                           <span
@@ -1105,33 +936,31 @@ export default function AdmissionsPage() {
                 </>
               ) : (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Modules and lessons will appear immediately as each chunk completes.
+                  Modules and lessons will appear as each chunk completes.
                 </p>
               )}
             </div>
           </div>
 
           {generationError ? (
-            <p className="rounded border border-red-200 bg-red-50 p-2 text-xs font-medium text-red-700">
+            <p className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs font-medium text-red-700">
               {generationError}
             </p>
           ) : null}
 
-          {buildStatus?.status === 'FAILED' &&
-          buildJobId &&
-          buildStatus.retryCount < buildStatus.maxRetries ? (
-            <Button onClick={handleRetryBuild} disabled={isGeneratingProgram} size="sm">
-              Resume build ({buildStatus.retryCount}/{buildStatus.maxRetries})
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {buildStatus?.status === 'FAILED' && buildJobId && buildStatus.retryCount < buildStatus.maxRetries ? (
+              <Button onClick={handleRetryBuild} disabled={isGeneratingProgram} size="sm">
+                Resume build ({buildStatus.retryCount}/{buildStatus.maxRetries})
+              </Button>
+            ) : null}
 
-          {buildStatus?.status === 'RUNNING' &&
-          buildJobId &&
-          !buildStatus.isWorking ? (
-            <Button onClick={handleRecoverBuild} disabled={isGeneratingProgram} size="sm" variant="secondary">
-              Recover stuck build
-            </Button>
-          ) : null}
+            {buildStatus?.status === 'RUNNING' && buildJobId && !buildStatus.isWorking ? (
+              <Button onClick={handleRecoverBuild} disabled={isGeneratingProgram} size="sm" variant="secondary">
+                Recover stuck build
+              </Button>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
     )
@@ -1140,77 +969,52 @@ export default function AdmissionsPage() {
   if (isComplete && profile) {
     return (
       <AppShell nav={productNav} currentPath="/admissions" status={shellStatus}>
-        <div className="mx-auto max-w-4xl space-y-6">
+        <div className="mx-auto max-w-6xl space-y-6">
           <PageHeader
-            title="Admissions summary"
-            subtitle="Admissions turns your goals into a runnable program plan."
+            title="Admissions Summary"
+            subtitle="Your profile is complete. Launch a generation pipeline and monitor progress without leaving this screen."
             actions={<Badge variant="success">Profile ready</Badge>}
           />
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <UserRound className="h-4 w-4" />
-                Profile snapshot
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <SummaryItem label="Topic" value={profile.topic} />
-              <SummaryItem label="Current Level" value={profile.currentLevel} />
-              <SummaryItem label="Goal Level" value={profile.goalLevel} />
-              <SummaryItem label="Target Date" value={profile.targetDate} />
-              <SummaryItem label="Hours per Day" value={`${profile.hoursPerDay} hours`} />
-              <SummaryItem label="Pace" value={profile.pacePreference} />
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <UserRound className="h-4 w-4" />
+                  Student Profile Snapshot
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-2">
+                <SummaryItem label="Topic" value={profile.topic} />
+                <SummaryItem label="Current Level" value={profile.currentLevel} />
+                <SummaryItem label="Goal Level" value={profile.goalLevel} />
+                <SummaryItem label="Target Date" value={profile.targetDate} />
+                <SummaryItem label="Hours per Day" value={`${profile.hoursPerDay} hours`} />
+                <SummaryItem label="Pace" value={profile.pacePreference} />
+              </CardContent>
+            </Card>
 
-          <Card className="subtle-gradient">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4" />
-                Proposed program pipeline
-              </CardTitle>
-              <CardDescription>
-                Your program will be generated as a background workflow with live progress, partial module availability, and reconnect-safe state.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-start">
-                  <span className="mr-2 text-green-500">✓</span>
-                  <span>Iterative agent pipeline (plan → gather → draft → review → persist)</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="mr-2 text-green-500">✓</span>
-                  <span>Real-time event stream with persistent job timeline</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="mr-2 text-green-500">✓</span>
-                  <span>Immediate lesson availability before full build completion</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="mr-2 text-green-500">✓</span>
-                  <span>Retry-safe recovery for partial failures</span>
-                </li>
-              </ul>
-            </CardContent>
-          </Card>
-
-          <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={handleGenerateProgram}
-              disabled={isLoading || isGeneratingProgram}
-              className="min-w-[220px]"
-            >
-              {isGeneratingProgram ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-              {isGeneratingProgram ? 'Generating program…' : 'Generate my program'}
-            </Button>
-            <Link
-              href="/"
-              className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
-            >
-              Start over
-            </Link>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ListChecks className="h-4 w-4" />
+                  Next Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button onClick={handleGenerateProgram} disabled={isLoading || isGeneratingProgram} className="w-full">
+                  {isGeneratingProgram ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  {isGeneratingProgram ? 'Generating program...' : 'Generate my program'}
+                </Button>
+                <Link href="/dashboard" className="btn-secondary w-full">
+                  Open dashboard
+                </Link>
+              </CardContent>
+            </Card>
           </div>
 
           {renderBuildPanel()}
@@ -1222,21 +1026,21 @@ export default function AdmissionsPage() {
   if (!sessionId) {
     return (
       <AppShell nav={productNav} currentPath="/admissions" status={shellStatus}>
-        <div className="mx-auto max-w-2xl space-y-6">
+        <div className="mx-auto max-w-3xl space-y-6">
           <Card className="text-center">
             <CardHeader className="items-center">
               <div className="mb-1 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                 <Bot className="h-6 w-6" />
               </div>
-              <CardTitle>Start admissions</CardTitle>
-              <CardDescription>
-                Begin your learning journey with a calm interview. The system will convert goals into a complete program in the background.
+              <CardTitle className="font-display text-2xl">Start Admissions</CardTitle>
+              <CardDescription className="max-w-xl">
+                Complete a guided interview to define goals, language policy, and pace before starting the build pipeline.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="mx-auto w-full max-w-sm">
               <Button onClick={handleStart} disabled={isLoading} className="w-full">
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
-                {isLoading ? 'Starting...' : 'Start admission interview'}
+                {isLoading ? 'Starting...' : 'Start interview'}
               </Button>
             </CardContent>
           </Card>
@@ -1249,84 +1053,93 @@ export default function AdmissionsPage() {
 
   return (
     <AppShell nav={productNav} currentPath="/admissions" status={shellStatus}>
-      <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6">
         <PageHeader
-          title="Admissions interview"
-          subtitle="One question at a time. Clear answers produce a better program."
+          title="Admissions Interview"
+          subtitle="One question at a time. Better input creates a stronger generated program."
           actions={<Badge variant="muted">Question {currentQuestion?.questionNumber || 1}</Badge>}
         />
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="mb-6">
-              <div className="mb-2 flex justify-between text-sm text-muted-foreground">
-                <span>Admissions interview</span>
-                <span>Question {currentQuestion?.questionNumber || 1}</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-muted">
-                <div
-                  className="h-2 rounded-full bg-primary transition-all"
-                  style={{ width: `${(currentQuestion?.progress || 0) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <h2 className="mb-4 text-2xl font-semibold text-foreground">{currentQuestion?.question}</h2>
-              {currentQuestion?.rationale && (
-                <p className="mb-6 rounded-lg border border-border/70 bg-muted/30 p-4 text-sm text-muted-foreground">
-                  {currentQuestion.rationale}
-                </p>
-              )}
-            </div>
-
-            <div className="mb-8">
-              {currentQuestion?.type === 'select' ? (
-                <div className="space-y-3">
-                  {currentQuestion.options?.map((option, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setAnswer(option)}
-                      className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
-                        answer === option
-                          ? 'border-primary bg-primary/10'
-                          : 'border-border hover:bg-muted/40'
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardContent className="p-6">
+              <div className="mb-6">
+                <div className="mb-2 flex justify-between text-sm text-muted-foreground">
+                  <span>Interview progress</span>
+                  <span>{Math.round((currentQuestion?.progress || 0) * 100)}%</span>
                 </div>
-              ) : (
-                <Textarea
-                  value={answer}
-                  onChange={(event) => setAnswer(event.target.value)}
-                  placeholder="Type your answer here..."
-                  className="w-full resize-none"
-                  rows={4}
-                />
-              )}
-            </div>
+                <div className="h-2 w-full rounded-full bg-muted">
+                  <div
+                    className="h-2 rounded-full bg-primary transition-all"
+                    style={{ width: `${(currentQuestion?.progress || 0) * 100}%` }}
+                  />
+                </div>
+              </div>
 
-            <div className="flex flex-wrap gap-3">
-              <Button
-                onClick={handleSubmitAnswer}
-                disabled={!answer.trim() || isLoading}
-                className="min-w-[180px]"
-              >
-                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {isLoading ? 'Submitting...' : 'Continue'}
-                {!isLoading ? <ArrowRight className="ml-2 h-4 w-4" /> : null}
-              </Button>
-              <Link
-                href="/"
-                className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-muted"
-              >
-                Cancel
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+              <div className="mb-6">
+                <h2 className="font-display text-2xl font-semibold text-foreground">{currentQuestion?.question}</h2>
+                {currentQuestion?.rationale ? (
+                  <p className="mt-3 rounded-xl border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
+                    {currentQuestion.rationale}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="mb-8">
+                {currentQuestion?.type === 'select' ? (
+                  <div className="space-y-2">
+                    {currentQuestion.options?.map((option, index) => (
+                      <button
+                        key={`${option}-${index}`}
+                        onClick={() => setAnswer(option)}
+                        className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
+                          answer === option
+                            ? 'border-primary/50 bg-primary/10'
+                            : 'border-border hover:bg-muted/40'
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <Textarea
+                    value={answer}
+                    onChange={(event) => setAnswer(event.target.value)}
+                    placeholder="Type your answer here..."
+                    className="w-full resize-none"
+                    rows={4}
+                  />
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={handleSubmitAnswer} disabled={!answer.trim() || isLoading} className="min-w-[180px]">
+                  {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {isLoading ? 'Submitting...' : 'Continue'}
+                  {!isLoading ? <ArrowRight className="ml-2 h-4 w-4" /> : null}
+                </Button>
+                <Link href="/" className="btn-secondary">
+                  Cancel
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock3 className="h-4 w-4" />
+                Interview Guidance
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>Be specific about target outcomes and timeline realism.</p>
+              <p>Language preferences here directly affect generated learner content.</p>
+              <p>After completion, launch the build pipeline and monitor progress live.</p>
+            </CardContent>
+          </Card>
+        </div>
 
         {renderBuildPanel()}
       </div>
@@ -1336,9 +1149,9 @@ export default function AdmissionsPage() {
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between border-b border-border/70 py-3">
-      <span className="font-medium text-muted-foreground">{label}</span>
-      <span className="font-semibold text-foreground">{value}</span>
+    <div className="rounded-xl border border-border/70 bg-muted/25 p-3">
+      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
     </div>
   )
 }

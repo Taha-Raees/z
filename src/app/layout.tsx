@@ -1,22 +1,23 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono, Inter } from 'next/font/google'
+import { IBM_Plex_Mono, Source_Sans_3, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 
-const geistSans = Geist({
+const display = Space_Grotesk({
   subsets: ['latin'],
-  variable: '--font-geist-sans',
+  variable: '--font-display',
   display: 'swap',
 })
 
-const geistMono = Geist_Mono({
+const body = Source_Sans_3({
   subsets: ['latin'],
-  variable: '--font-geist-mono',
+  variable: '--font-body',
   display: 'swap',
 })
 
-const inter = Inter({ 
+const mono = IBM_Plex_Mono({
   subsets: ['latin'],
-  variable: '--font-inter',
+  variable: '--font-mono',
+  weight: ['400', '500', '600'],
   display: 'swap',
 })
 
@@ -33,7 +34,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${inter.variable}`}>
+    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body className="min-h-screen font-sans antialiased">{children}</body>
     </html>
   )

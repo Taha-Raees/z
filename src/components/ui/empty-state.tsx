@@ -13,13 +13,13 @@ type EmptyStateProps = {
 
 function EmptyState({ icon, title, description, ctaLabel, ctaHref, className }: EmptyStateProps) {
   return (
-    <div className={cn('rounded-2xl border border-dashed border-border bg-muted/30 p-8 text-center', className)}>
+    <div className={cn('rounded-2xl border border-dashed border-border/90 bg-muted/35 p-8 text-center', className)}>
       {icon ? (
-        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-background text-muted-foreground">
           {icon}
         </div>
       ) : null}
-      <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+      <h3 className="font-display text-lg font-semibold text-foreground">{title}</h3>
       <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">{description}</p>
       {ctaLabel && ctaHref ? (
         <Link href={ctaHref} className={cn(buttonVariants({ variant: 'primary' }), 'mt-4')}>

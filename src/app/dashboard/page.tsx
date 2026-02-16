@@ -14,7 +14,18 @@ import {
   type StatusKind,
 } from '@/components/ui'
 import { productNav } from '@/lib/app-navigation'
-import { BookOpen, CalendarClock, CheckCircle2, ChartColumnBig, PencilLine } from 'lucide-react'
+import {
+  BookOpen,
+  CalendarClock,
+  CheckCircle2,
+  ChartColumnBig,
+  ClipboardCheck,
+  Coffee,
+  FileText,
+  PencilLine,
+  RotateCcw,
+  Target,
+} from 'lucide-react'
 
 type DailyPlanApiResponse = {
   success: boolean
@@ -317,14 +328,14 @@ function ScheduleItem({
   estimatedMinutes: number
   refId: string | null
 }) {
-  const typeIcons: Record<string, string> = {
-    LESSON: '📚',
-    EXERCISE: '✍️',
-    QUIZ: '📝',
-    TEST: '📋',
-    EXAM: '🎯',
-    REVIEW: '🔄',
-    BREAK: '☕',
+  const typeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+    LESSON: BookOpen,
+    EXERCISE: PencilLine,
+    QUIZ: ClipboardCheck,
+    TEST: FileText,
+    EXAM: Target,
+    REVIEW: RotateCcw,
+    BREAK: Coffee,
   }
 
   const statusConfig: Record<string, { bg: string; border: string; text: string; label: string }> = {
@@ -355,12 +366,15 @@ function ScheduleItem({
   }
 
   const config = statusConfig[status] || statusConfig.PENDING
+  const TypeIcon = typeIcons[type] || FileText
 
   return (
     <article className={`rounded-xl border ${config.border} ${config.bg} p-3`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 text-lg">{typeIcons[type] || '📌'}</span>
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
+            <TypeIcon className="h-4 w-4" />
+          </span>
           <div>
             <p className="text-sm font-medium text-foreground">{title}</p>
             <p className="text-xs text-muted-foreground">{estimatedMinutes} minutes</p>

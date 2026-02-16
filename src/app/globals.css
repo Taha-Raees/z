@@ -4,75 +4,76 @@
 
 @layer base {
   :root {
-    --background: 220 20% 98%;
-    --foreground: 222 31% 14%;
+    --bg: 214 36% 97%;
+    --surface: 0 0% 100%;
+    --surface-muted: 214 28% 94%;
+    --text: 219 43% 14%;
+    --muted: 216 15% 38%;
+    --primary: 194 74% 34%;
+    --success: 151 55% 36%;
+    --warning: 39 84% 46%;
+    --danger: 0 72% 46%;
+    --info: 216 78% 46%;
+    --border: 214 24% 84%;
+    --ring: 194 74% 34%;
+    --radius: 0.85rem;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 31% 14%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 31% 14%;
-
-    --primary: 226 78% 56%;
+    /* Existing semantic aliases used by components */
+    --background: var(--bg);
+    --foreground: var(--text);
+    --card: var(--surface);
+    --card-foreground: var(--text);
+    --popover: var(--surface);
+    --popover-foreground: var(--text);
     --primary-foreground: 0 0% 100%;
-
-    --secondary: 220 16% 95%;
-    --secondary-foreground: 222 31% 18%;
-
-    --muted: 220 18% 96%;
-    --muted-foreground: 220 10% 42%;
-
-    --accent: 220 17% 95%;
-    --accent-foreground: 222 31% 18%;
-
-    --destructive: 0 72% 53%;
+    --secondary: var(--surface-muted);
+    --secondary-foreground: 219 38% 19%;
+    --muted-foreground: var(--muted);
+    --accent: 211 34% 92%;
+    --accent-foreground: 219 38% 19%;
+    --destructive: var(--danger);
     --destructive-foreground: 0 0% 100%;
+    --input: var(--border);
 
-    --border: 220 16% 88%;
-    --input: 220 16% 88%;
-    --ring: 226 78% 56%;
-
-    --radius: 0.9rem;
-
-    --sidebar: 220 22% 97%;
-    --sidebar-foreground: 222 30% 16%;
-    --sidebar-muted: 220 16% 93%;
-    --sidebar-border: 220 18% 88%;
+    --sidebar: 216 36% 95%;
+    --sidebar-foreground: 219 40% 16%;
+    --sidebar-muted: 214 29% 91%;
+    --sidebar-border: 214 24% 82%;
   }
 
   .dark {
-    --background: 226 34% 8%;
-    --foreground: 210 36% 96%;
+    --bg: 220 37% 10%;
+    --surface: 220 30% 13%;
+    --surface-muted: 220 20% 16%;
+    --text: 210 36% 96%;
+    --muted: 216 16% 72%;
+    --primary: 193 82% 47%;
+    --success: 151 50% 46%;
+    --warning: 39 90% 55%;
+    --danger: 0 76% 56%;
+    --info: 212 88% 63%;
+    --border: 220 17% 24%;
+    --ring: 193 82% 47%;
 
-    --card: 225 32% 10%;
-    --card-foreground: 210 36% 96%;
+    --background: var(--bg);
+    --foreground: var(--text);
+    --card: var(--surface);
+    --card-foreground: var(--text);
+    --popover: var(--surface);
+    --popover-foreground: var(--text);
+    --secondary: var(--surface-muted);
+    --secondary-foreground: var(--text);
+    --muted-foreground: var(--muted);
+    --accent: 219 23% 20%;
+    --accent-foreground: var(--text);
+    --destructive: var(--danger);
+    --destructive-foreground: var(--text);
+    --input: var(--border);
 
-    --popover: 225 32% 10%;
-    --popover-foreground: 210 36% 96%;
-
-    --primary: 226 92% 69%;
-    --primary-foreground: 224 38% 14%;
-
-    --secondary: 223 21% 18%;
-    --secondary-foreground: 210 36% 96%;
-
-    --muted: 223 18% 16%;
-    --muted-foreground: 217 13% 69%;
-
-    --accent: 223 18% 16%;
-    --accent-foreground: 210 36% 96%;
-
-    --destructive: 0 73% 44%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 223 17% 21%;
-    --input: 223 17% 21%;
-    --ring: 226 92% 69%;
-
-    --sidebar: 226 34% 9%;
-    --sidebar-foreground: 210 36% 96%;
-    --sidebar-muted: 224 19% 17%;
-    --sidebar-border: 223 17% 21%;
+    --sidebar: 220 36% 12%;
+    --sidebar-foreground: var(--text);
+    --sidebar-muted: 220 22% 18%;
+    --sidebar-border: 220 17% 24%;
   }
 
   * {
@@ -93,10 +94,12 @@
 
   body {
     @apply bg-background text-foreground font-sans;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
     background-image:
-      radial-gradient(1200px 500px at 0% -20%, rgba(99, 102, 241, 0.08), transparent 60%),
-      radial-gradient(1000px 400px at 100% -15%, rgba(79, 70, 229, 0.06), transparent 58%);
+      radial-gradient(960px 420px at 0% -10%, hsl(194 74% 34% / 0.1), transparent 62%),
+      radial-gradient(860px 380px at 100% -14%, hsl(216 78% 46% / 0.09), transparent 58%),
+      linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background)) 64%, hsl(214 30% 95%) 100%);
+    background-attachment: fixed;
   }
 
   ::selection {
@@ -109,17 +112,44 @@
   }
 }
 
+@layer components {
+  .section-apple {
+    @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-10;
+  }
+
+  .card-apple {
+    @apply rounded-2xl border border-border/80 bg-card shadow-sm;
+  }
+
+  .glass {
+    background: hsl(var(--background) / 0.88);
+    backdrop-filter: blur(12px);
+  }
+
+  .btn-primary {
+    @apply inline-flex h-10 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all duration-200 hover:bg-primary/90 hover:shadow;
+  }
+
+  .btn-secondary {
+    @apply inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition-colors duration-200 hover:bg-muted;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
 
   .surface {
-    @apply rounded-2xl border bg-card text-card-foreground shadow-sm;
+    @apply rounded-2xl border border-border/80 bg-card text-card-foreground shadow-sm;
   }
 
   .surface-muted {
-    @apply rounded-2xl border bg-muted/50;
+    @apply rounded-2xl border border-border/70 bg-muted/50;
+  }
+
+  .surface-elevated {
+    @apply rounded-2xl border border-border/70 bg-card shadow-md;
   }
 
   .hairline {
@@ -127,28 +157,27 @@
   }
 
   .subtle-gradient {
-    background-image: linear-gradient(
-      135deg,
-      hsl(var(--card)) 0%,
-      hsl(var(--card)) 62%,
-      hsl(var(--muted) / 0.55) 100%
-    );
+    background-image: linear-gradient(140deg, hsl(var(--card)) 0%, hsl(var(--card)) 58%, hsl(var(--secondary)) 100%);
+  }
+
+  .grid-12 {
+    @apply grid grid-cols-1 gap-4 md:grid-cols-12;
   }
 
   .animate-fade-in {
-    animation: fadeIn 0.4s ease-out;
+    animation: fadeIn 0.35s ease-out;
   }
 
   .animate-slide-up {
-    animation: slideUp 0.4s ease-out;
+    animation: slideUp 0.35s ease-out;
   }
 
   .animate-scale-in {
-    animation: scaleIn 0.25s ease-out;
+    animation: scaleIn 0.22s ease-out;
   }
 
-  .hover-lift {
-    @apply transition-transform duration-300 ease-out hover:-translate-y-0.5;
+  .status-pulse {
+    animation: statusPulse 1.6s ease-in-out infinite;
   }
 }
 
@@ -164,7 +193,7 @@
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -175,10 +204,31 @@
 @keyframes scaleIn {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes statusPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
