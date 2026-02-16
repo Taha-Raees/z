@@ -39,8 +39,8 @@ function AppShell({ nav, currentPath, children, status = 'ready' }: AppShellProp
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex max-w-[1440px]">
-        <aside className="sticky top-0 hidden h-screen w-[292px] shrink-0 border-r border-sidebar-border/80 bg-sidebar/90 p-4 md:block">
+      <div className="flex w-full">
+        <aside className="sticky top-0 hidden h-screen w-[292px] shrink-0 border-r border-sidebar-border/80 bg-sidebar/90 p-4 backdrop-blur-md supports-[backdrop-filter]:bg-sidebar/84 md:block">
           <Link href="/dashboard" className="mb-6 block rounded-2xl border border-border/70 bg-card p-3">
             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">AI School</p>
             <p className="mt-1 font-display text-lg font-semibold text-foreground">Institute Console</p>
@@ -115,17 +115,17 @@ function AppShell({ nav, currentPath, children, status = 'ready' }: AppShellProp
         <div className="fixed inset-0 z-40 md:hidden">
           <button
             type="button"
-            className="absolute inset-0 bg-foreground/35"
+            className="absolute inset-0 bg-foreground/32 backdrop-blur-[2px]"
             onClick={() => setMobileOpen(false)}
             aria-label="Close navigation"
           />
-          <div className="absolute left-0 top-0 h-full w-[88%] max-w-sm border-r border-sidebar-border bg-sidebar p-4">
+          <div className="absolute left-0 top-0 h-full w-[88%] max-w-sm border-r border-sidebar-border/80 bg-background/90 p-4 shadow-2xl backdrop-blur-2xl supports-[backdrop-filter]:bg-background/78">
             <div className="mb-5 flex items-center justify-between">
-              <p className="font-display text-lg font-semibold text-sidebar-foreground">Institute Console</p>
+              <p className="font-display text-lg font-semibold text-foreground">Institute Console</p>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card/80"
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
